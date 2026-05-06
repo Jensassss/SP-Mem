@@ -11,10 +11,6 @@ This anonymized artifact contains the SP-Mem implementation, synthetic benchmark
 - `.env.example`: example environment variable names with empty values.
 - `requirements.txt`: Python dependencies for the core artifact and evaluation scripts.
 
-## What Is Not Included
-
-The complete benchmark depends on external LLM APIs and memory backends. To keep the anonymous supplementary package compact and avoid submitting generated artifacts, this package does not include stored vector databases, graph databases, SQLite memory stores, generated model responses, judge outputs, logs, or cache files. These artifacts should be regenerated from the synthetic histories and profiles in `data/`.
-
 ## Environment
 
 Install dependencies with:
