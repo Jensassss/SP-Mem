@@ -15,12 +15,18 @@ from spmem_agent.llm import build_openai_llm_call
 
 
 def main() -> None:
+    neo4j_password = os.getenv("NEO4J_PASSWORD")
+    if not neo4j_password:
+        raise RuntimeError("Please set NEO4J_PASSWORD before constructing the memory client.")
+
     # 1) Build your memory client (example config only).
     memory_config = {
         "llm": {
             "provider": "openai",
             "config": {
                 "model": "gpt-5.2-chat",
+                "api_key": os.getenv("OPENAI_API_KEY"),
+                "openai_base_url": os.getenv("OPENAI_BASE_URL"),
             },
         },
         "embedder": {
@@ -37,7 +43,7 @@ def main() -> None:
             "config": {
                 "url": "neo4j://localhost:7687",
                 "username": "neo4j",
-                "password": os.getenv("NEO4J_PASSWORD", "neo4j"),
+                "password": neo4j_password,
                 "database": "neo4j",
             },
         },

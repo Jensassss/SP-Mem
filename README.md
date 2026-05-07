@@ -72,6 +72,10 @@ from pathlib import Path
 
 from spmem_memory import Memory
 
+neo4j_password = os.getenv("NEO4J_PASSWORD")
+if not neo4j_password:
+    raise RuntimeError("Please set NEO4J_PASSWORD before constructing the memory client.")
+
 memory_config = {
     "llm": {
         "provider": "openai",
@@ -95,7 +99,7 @@ memory_config = {
         "config": {
             "url": "neo4j://localhost:7687",
             "username": "neo4j",
-            "password": os.getenv("NEO4J_PASSWORD", "neo4j"),
+            "password": neo4j_password,
             "database": "neo4j",
         },
     },
@@ -225,4 +229,6 @@ python eval/score_upu_exact_match.py --help
 
 ## License and Access
 
-This anonymized artifact is provided for confidential review. The public, de-anonymized release should include the final repository link, persistent dataset identifier, and license/access information.
+This anonymized artifact is provided for confidential review only. The released code and synthetic data are intended solely for reproducing and evaluating the submitted paper during the review period. A de-anonymized public release, including final license and access information, will be provided upon acceptance.
+
+The synthetic benchmark data do not contain real user data or scraped personal records. All example credentials in this repository are placeholders; users should configure API keys and service passwords through environment variables.
