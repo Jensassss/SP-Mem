@@ -108,30 +108,38 @@ class PrivacyProcessor:
         value = str(raw_value).strip()
         suffix = str(filters["user_id"])[-4:]
 
+        def ensure_non_exact(sanitized_value):
+            sanitized_text = str(sanitized_value).strip()
+            normalized_raw = re.sub(r"[\s_]+", " ", value).casefold()
+            normalized_sanitized = re.sub(r"[\s_]+", " ", sanitized_text).casefold()
+            if normalized_raw and normalized_sanitized == normalized_raw:
+                return f"{privacy_type.lower()}_{suffix}"
+            return sanitized_value
+
         if mask_strategy == "alias":
             alias_map = {
                 "EMAIL": f"user_{suffix}@email.com",
                 "FINANCE_STATUS_LEVEL": f"finance_status_level_{suffix}",
                 "GENDER": "gender_placeholder",
             }
-            return alias_map.get(privacy_type, f"{privacy_type.lower()}_{suffix}")
+            return ensure_non_exact(alias_map.get(privacy_type, f"{privacy_type.lower()}_{suffix}"))
         
         if mask_strategy == "first_name":
             normalized = value.replace("_", " ").strip()
             parts = normalized.split()
             if parts:
-                return parts[0].lower()
+                return ensure_non_exact(parts[0].lower())
             return f"person_name_{suffix}"
         
         if mask_strategy == "mask_keep_last4":
             label = self.MASK_LAST4_LABEL_BY_PRIVACY_TYPE.get(privacy_type, privacy_type.lower())
-            return self.mask_keep_last4(value, label)
+            return ensure_non_exact(self.mask_keep_last4(value, label))
 
         if mask_strategy == "bucket":
-            return self.bucket_privacy_value(value, privacy_type)
+            return ensure_non_exact(self.bucket_privacy_value(value, privacy_type))
         
         if mask_strategy == "llm_generalize":
-            return self.llm_generalize_value(value, privacy_type, filters)
+            return ensure_non_exact(self.llm_generalize_value(value, privacy_type, filters))
 
         return f"{privacy_type.lower()}_{suffix}"
         
@@ -388,7 +396,11 @@ class PrivacyProcessor:
             return text
 
         except Exception as e:
-            logger.warning(f"LLM generalization failed for privacy_type={privacy_type}, value={raw_value}, error={e}")
+            logger.warning(
+                "LLM generalization failed for privacy_type=%s; raw value redacted; error=%s",
+                privacy_type,
+                e,
+            )
             return fallback_value
 
     def build_llm_generalize_prompt(self, privacy_type, value):

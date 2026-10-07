@@ -1,0 +1,63 @@
+{
+  "paper": {
+    "title": "What to Remember, What to Reveal: Privacy-Aware Memory for Conversational Agents",
+    "memory_model_display_name": "GPT-5.2-Chat",
+    "evaluation_user_count_reported": 100,
+    "evaluation_user_split_available": false
+  },
+  "memory_model": {
+    "display_name": "GPT-5.2-Chat",
+    "model_id_env": "SPMEM_MEMORY_MODEL_ID",
+    "api_key_env": "SPMEM_MEMORY_API_KEY",
+    "base_url_env": "SPMEM_MEMORY_BASE_URL"
+  },
+  "embedding_model": {
+    "display_name": "text-embedding-3-small",
+    "model_id_env": "SPMEM_EMBEDDING_MODEL_ID",
+    "api_key_env": "SPMEM_EMBEDDING_API_KEY",
+    "base_url_env": "SPMEM_EMBEDDING_BASE_URL",
+    "dimensions": 1536
+  },
+  "response_models": {
+    "gpt-5.2-chat": {
+      "display_name": "GPT-5.2-Chat",
+      "model_id_env": "SPMEM_GPT52_MODEL_ID",
+      "api_key_env": "SPMEM_GPT52_API_KEY",
+      "base_url_env": "SPMEM_GPT52_BASE_URL"
+    },
+    "llama-3.1-8b-instruct": {
+      "display_name": "Llama-3.1-8B-Instruct",
+      "model_id_env": "SPMEM_LLAMA31_MODEL_ID",
+      "api_key_env": "SPMEM_LLAMA31_API_KEY",
+      "base_url_env": "SPMEM_LLAMA31_BASE_URL"
+    },
+    "qwen3-14b": {
+      "display_name": "Qwen3-14B",
+      "model_id_env": "SPMEM_QWEN3_MODEL_ID",
+      "api_key_env": "SPMEM_QWEN3_API_KEY",
+      "base_url_env": "SPMEM_QWEN3_BASE_URL"
+    },
+    "deepseek-v3.2": {
+      "display_name": "DeepSeek-V3.2",
+      "model_id_env": "SPMEM_DEEPSEEK32_MODEL_ID",
+      "api_key_env": "SPMEM_DEEPSEEK32_API_KEY",
+      "base_url_env": "SPMEM_DEEPSEEK32_BASE_URL"
+    }
+  },
+  "judge_model": {
+    "display_name": "GPT-4.1",
+    "model_id_env": "SPMEM_JUDGE_MODEL_ID",
+    "api_key_env": "SPMEM_JUDGE_API_KEY",
+    "base_url_env": "SPMEM_JUDGE_BASE_URL"
+  },
+  "storage": {
+    "qdrant_path": "runs/storage/qdrant",
+    "qdrant_collection": "spmem_paper",
+    "history_db_path": "runs/storage/history.db",
+    "privacy_mapping_dir": "runs/storage/privacy_mappings",
+    "neo4j_url_env": "SPMEM_NEO4J_URL",
+    "neo4j_username_env": "SPMEM_NEO4J_USERNAME",
+    "neo4j_password_env": "SPMEM_NEO4J_PASSWORD",
+    "neo4j_database_env": "SPMEM_NEO4J_DATABASE"
+  }
+}

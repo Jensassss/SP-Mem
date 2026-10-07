@@ -1,0 +1,39 @@
+{
+  "note": "Optional baseline packages and service-specific IDs must be supplied by the user. No baseline version is claimed to be the undisclosed historical environment.",
+  "mem0": {
+    "memory_config": {
+      "llm": {
+        "provider": "openai",
+        "config": {
+          "model": "${SPMEM_MEMORY_MODEL_ID}",
+          "api_key": "${SPMEM_MEMORY_API_KEY}",
+          "openai_base_url": "${SPMEM_MEMORY_BASE_URL}"
+        }
+      },
+      "embedder": {
+        "provider": "openai",
+        "config": {
+          "model": "${SPMEM_EMBEDDING_MODEL_ID}",
+          "api_key": "${SPMEM_EMBEDDING_API_KEY}",
+          "openai_base_url": "${SPMEM_EMBEDDING_BASE_URL}"
+        }
+      },
+      "vector_store": {
+        "provider": "qdrant",
+        "config": {
+          "collection_name": "paper_mem0",
+          "path": "runs/baselines/mem0/qdrant",
+          "embedding_model_dims": 1536,
+          "on_disk": true
+        }
+      }
+    }
+  },
+  "zep": {
+    "api_key_env": "SPMEM_ZEP_API_KEY"
+  },
+  "memos": {
+    "mos_config": {},
+    "note": "Fill with arguments accepted by the installed MemOS MOSConfig release."
+  }
+}

@@ -199,12 +199,18 @@ def _lookup_privacy_value_with_scope(
     privacy_ref_id: str,
     user_id: str,
     result_item: Dict[str, Any],
+    release_authorization: Any,
+    authorization_validator: Callable[..., bool],
+    session_id: str,
 ) -> Optional[Any]:
     return _hydrator.lookup_privacy_value_with_scope(
         privacy_lookup_fn=privacy_lookup_fn,
         privacy_ref_id=privacy_ref_id,
         user_id=user_id,
         result_item=result_item,
+        release_authorization=release_authorization,
+        authorization_validator=authorization_validator,
+        session_id=session_id,
     )
 
 
@@ -212,11 +218,17 @@ def hydrate_private_values(
     retrieved_memories: List[Dict[str, Any]],
     user_id: str,
     privacy_lookup_fn: Callable[[str, str], Optional[Any]],
+    release_authorization: Any,
+    authorization_validator: Callable[..., bool],
+    session_id: str,
 ) -> List[Dict[str, Any]]:
     return _hydrator.hydrate_private_values(
         retrieved_memories=retrieved_memories,
         user_id=user_id,
         privacy_lookup_fn=privacy_lookup_fn,
+        release_authorization=release_authorization,
+        authorization_validator=authorization_validator,
+        session_id=session_id,
     )
 
 
@@ -225,12 +237,18 @@ def _lookup_vector_raw_value_by_hash(
     user_id: str,
     privacy_type: str,
     entity_hash: str,
+    release_authorization: Any,
+    authorization_validator: Callable[..., bool],
+    session_id: str,
 ) -> Optional[Any]:
     return _hydrator.lookup_vector_raw_value_by_hash(
         memory=memory,
         user_id=user_id,
         privacy_type=privacy_type,
         entity_hash=entity_hash,
+        release_authorization=release_authorization,
+        authorization_validator=authorization_validator,
+        session_id=session_id,
     )
 
 
@@ -238,11 +256,17 @@ def hydrate_vector_values_by_hash(
     retrieved_memories: List[Dict[str, Any]],
     user_id: str,
     memory: Any,
+    release_authorization: Any,
+    authorization_validator: Callable[..., bool],
+    session_id: str,
 ) -> List[Dict[str, Any]]:
     return _hydrator.hydrate_vector_values_by_hash(
         retrieved_memories=retrieved_memories,
         user_id=user_id,
         memory=memory,
+        release_authorization=release_authorization,
+        authorization_validator=authorization_validator,
+        session_id=session_id,
     )
 
 
@@ -257,6 +281,9 @@ def prepare_retrieved_memories_for_answer(
     memory: Any,
     consent: bool,
     privacy_lookup_fn: Optional[Callable[[str, str], Optional[Any]]] = None,
+    release_authorization: Any = None,
+    authorization_validator: Optional[Callable[..., bool]] = None,
+    session_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     return _pipeline.prepare_retrieved_memories_for_answer(
         query=query,
@@ -265,6 +292,9 @@ def prepare_retrieved_memories_for_answer(
         memory=memory,
         consent=consent,
         privacy_lookup_fn=privacy_lookup_fn,
+        release_authorization=release_authorization,
+        authorization_validator=authorization_validator,
+        session_id=session_id,
     )
 
 
@@ -306,6 +336,9 @@ def continue_after_consent(
     memory: Any,
     llm_call: Callable[[str, str], str],
     privacy_lookup_fn: Optional[Callable[[str, str], Optional[Any]]] = None,
+    release_authorization: Any = None,
+    authorization_validator: Optional[Callable[..., bool]] = None,
+    session_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     _sync_prompt_config()
     return _pipeline.continue_after_consent(
@@ -316,6 +349,9 @@ def continue_after_consent(
         memory=memory,
         llm_call=llm_call,
         privacy_lookup_fn=privacy_lookup_fn,
+        release_authorization=release_authorization,
+        authorization_validator=authorization_validator,
+        session_id=session_id,
     )
 
 

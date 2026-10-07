@@ -1,7 +1,8 @@
 import logging
+import os
 import re
 import uuid
-import sys
+import threading
 from warnings import filters
 from spmem_memory.memory.privacy_processor import PrivacyProcessor
 from spmem_memory.memory.utils import format_entities, sanitize_relationship_for_cypher
@@ -72,23 +73,19 @@ class MemoryGraph:
             llm_config = self.config.llm.config
         self.llm = LlmFactory.create(self.llm_provider, llm_config)
         self.user_id = None
+        self._mapping_lock = threading.RLock()
         # Use threshold from graph_store config, default to 0.7 for backward compatibility
         self.threshold = self.config.graph_store.threshold if hasattr(self.config.graph_store, 'threshold') else 0.7
         self.privacy_processor = PrivacyProcessor(self.llm)
 
-    def _runtime_script_dir(self):
-        """Resolve the running script directory; fallback to current working directory."""
-        try:
-            main_module = sys.modules.get("__main__")
-            main_file = getattr(main_module, "__file__", None) if main_module else None
-            if main_file:
-                return Path(main_file).resolve().parent
-        except Exception:
-            pass
-        return Path.cwd()
-
     def _privacy_mapping_dir(self):
-        mapping_dir = self._runtime_script_dir() / "privacy_mappings"
+        configured = getattr(self.config, "privacy_mapping_dir", None)
+        configured = configured or os.getenv("SPMEM_PRIVACY_MAPPING_DIR")
+        if configured:
+            mapping_dir = Path(configured).expanduser().resolve()
+        else:
+            state_root = Path(os.getenv("SPMEM_DIR", Path.cwd() / ".spmem"))
+            mapping_dir = state_root.expanduser().resolve() / "privacy_mappings"
         mapping_dir.mkdir(parents=True, exist_ok=True)
         return mapping_dir
 
@@ -103,13 +100,13 @@ class MemoryGraph:
         return self._privacy_mapping_dir() / f"{self._safe_user_file_stem(user_id)}.jsonl"
 
     def add(self, data, filters):
-        print("[ADD] start")
+        logger.debug("[ADD] start")
         entity_type_map = self._retrieve_nodes_from_data(data, filters)
-        print("[ADD] after _retrieve_nodes_from_data", len(entity_type_map))
+        logger.debug("[ADD] after _retrieve_nodes_from_data count=%d", len(entity_type_map))
 
         to_be_added = self._establish_nodes_relations_from_data(data, filters, entity_type_map)
         to_be_added = self._normalize_user_node_name(to_be_added, filters)
-        print("[ADD] after _establish_nodes_relations_from_data", len(to_be_added))
+        logger.debug("[ADD] after _establish_nodes_relations_from_data count=%d", len(to_be_added))
 
         sanitize_result = self._sanitize_triples_before_add(
             triples=to_be_added,
@@ -117,29 +114,32 @@ class MemoryGraph:
             data=data,
             filters=filters,
         )
-        print("[ADD] after _sanitize_triples_before_add")
+        logger.debug("[ADD] after _sanitize_triples_before_add")
 
         to_be_added = sanitize_result["triples"]
         entity_type_map = sanitize_result["entity_type_map"]
         sanitized_node_meta = sanitize_result["sanitized_node_meta"]
 
         self._persist_privacy_mappings(sanitize_result["privacy_mappings"])
-        print("[ADD] after _persist_privacy_mappings", len(sanitize_result["privacy_mappings"]))
+        logger.debug(
+            "[ADD] after _persist_privacy_mappings count=%d",
+            len(sanitize_result["privacy_mappings"]),
+        )
 
         search_output = []
         # search_output = self._search_graph_db(node_list=list(entity_type_map.keys()), filters=filters)
-        print("[SKIP] after _search_graph_db", len(search_output))
+        logger.debug("[SKIP] after _search_graph_db count=%d", len(search_output))
 
         to_be_deleted = []
         # to_be_deleted = self._get_delete_entities_from_search_output(search_output, data, filters)
-        print("[SKIP] after _get_delete_entities_from_search_output", len(to_be_deleted))
+        logger.debug("[SKIP] after _get_delete_entities_from_search_output count=%d", len(to_be_deleted))
        
         deleted_entities = []
         # deleted_entities = self._delete_entities(to_be_deleted, filters)
-        print("[SKIP] after _delete_entities")
+        logger.debug("[SKIP] after _delete_entities")
 
         added_entities = self._add_entities(to_be_added, filters, entity_type_map, sanitized_node_meta)
-        print("[ADD] after _add_entities")
+        logger.debug("[ADD] after _add_entities")
 
         return {"deleted_entities": deleted_entities, "added_entities": added_entities}
 
@@ -340,6 +340,10 @@ class MemoryGraph:
             node_props.append("run_id: $run_id")
         node_props_str = ", ".join(node_props)
 
+        count_cypher = f"""
+        MATCH (n {self.node_label} {{{node_props_str}}})
+        RETURN count(n) AS node_count
+        """
         cypher = f"""
         MATCH (n {self.node_label} {{{node_props_str}}})
         DETACH DELETE n
@@ -349,7 +353,15 @@ class MemoryGraph:
             params["agent_id"] = filters["agent_id"]
         if filters.get("run_id"):
             params["run_id"] = filters["run_id"]
+        # Remove exact values first so a partial failure cannot leave them releasable.
+        mapping_result = self.delete_privacy_mappings(filters)
+        count_result = self.graph.query(count_cypher, params=params)
         self.graph.query(cypher, params=params)
+        node_count = count_result[0].get("node_count", 0) if count_result else 0
+        return {
+            "deleted_nodes": node_count,
+            "deleted_privacy_mappings": mapping_result["deleted_mappings"],
+        }
 
     def get_all(self, filters, limit=100):
         """
@@ -471,9 +483,7 @@ class MemoryGraph:
         if extracted_entities.get("tool_calls"):
             entities = extracted_entities["tool_calls"][0].get("arguments", {}).get("entities", [])
 
-        from pprint import pprint
-        print("DEBUG entities before _remove_spaces_from_entities:")
-        pprint(entities)
+        logger.debug("entities before _remove_spaces_from_entities: %s", entities)
         entities = self._remove_spaces_from_entities(entities)
         logger.debug(f"Extracted entities: {entities}")
         return entities
@@ -684,18 +694,83 @@ class MemoryGraph:
             user_key = str(user_id)
             mappings_by_user.setdefault(user_key, []).append(item)
 
-        for user_key, items in mappings_by_user.items():
-            path = self._privacy_mapping_file_for_user(user_key)
-            with path.open("a", encoding="utf-8") as f:
-                for item in items:
-                    f.write(json.dumps(item, ensure_ascii=False) + "\n")
+        with self._mapping_lock:
+            for user_key, items in mappings_by_user.items():
+                path = self._privacy_mapping_file_for_user(user_key)
+                with path.open("a", encoding="utf-8") as f:
+                    for item in items:
+                        f.write(json.dumps(item, ensure_ascii=False) + "\n")
 
-    def lookup_privacy_value(self, privacy_ref_id, user_id, agent_id=None, run_id=None):
+    @staticmethod
+    def _mapping_matches_filters(item, filters):
+        if str(item.get("user_id")) != str(filters.get("user_id")):
+            return False
+        for key in ("agent_id", "run_id"):
+            if filters.get(key) is not None and item.get(key) != filters[key]:
+                return False
+        return True
+
+    def delete_privacy_mappings(self, filters):
+        """Remove graph-side exact values matching the deletion scope."""
+        user_id = filters.get("user_id")
+        if user_id is None:
+            raise ValueError("user_id is required to delete graph privacy mappings")
+
+        user_path = self._privacy_mapping_file_for_user(user_id)
+        legacy_path = self._privacy_mapping_dir() / "privacy_mappings.jsonl"
+        candidate_paths = list(dict.fromkeys((user_path, legacy_path)))
+        deleted_mappings = 0
+
+        with self._mapping_lock:
+            for path in candidate_paths:
+                if not path.exists():
+                    continue
+
+                retained_lines = []
+                with path.open("r", encoding="utf-8") as handle:
+                    for raw_line in handle:
+                        line = raw_line.strip()
+                        if not line:
+                            continue
+                        try:
+                            item = json.loads(line)
+                        except Exception:
+                            retained_lines.append(line)
+                            continue
+
+                        if self._mapping_matches_filters(item, filters):
+                            deleted_mappings += 1
+                        else:
+                            retained_lines.append(json.dumps(item, ensure_ascii=False))
+
+                if retained_lines:
+                    temp_path = path.with_suffix(path.suffix + ".tmp")
+                    temp_path.write_text(
+                        "\n".join(retained_lines) + "\n",
+                        encoding="utf-8",
+                    )
+                    temp_path.replace(path)
+                else:
+                    path.unlink(missing_ok=True)
+
+        return {"deleted_mappings": deleted_mappings}
+
+    def lookup_privacy_value(
+        self,
+        privacy_ref_id,
+        user_id,
+        agent_id=None,
+        run_id=None,
+        *,
+        release_authorization=None,
+        authorization_validator=None,
+        session_id=None,
+    ):
         if not privacy_ref_id or not user_id:
             return None
 
         user_path = self._privacy_mapping_file_for_user(user_id)
-        legacy_path = self._runtime_script_dir() / "privacy_mappings.jsonl"
+        legacy_path = self._privacy_mapping_dir() / "privacy_mappings.jsonl"
         candidate_paths = [user_path]
         if legacy_path != user_path:
             candidate_paths.append(legacy_path)
@@ -729,6 +804,20 @@ class MemoryGraph:
                     matched_item = item
 
         if not matched_item:
+            return None
+
+        if not callable(authorization_validator):
+            return None
+        try:
+            authorized = authorization_validator(
+                release_authorization,
+                user_id=user_id,
+                privacy_type=matched_item.get("privacy_type"),
+                session_id=session_id,
+            )
+        except Exception:
+            authorized = False
+        if not authorized:
             return None
 
         return matched_item.get("raw_value")

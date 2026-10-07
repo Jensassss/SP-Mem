@@ -70,6 +70,24 @@ def _normalize_iso_timestamp_to_utc(timestamp: Optional[str]) -> Optional[str]:
     return parsed.astimezone(timezone.utc).isoformat()
 
 
+def _unpack_vector_list_result(result) -> list:
+    """Normalize vector-store list results to a list of memory records."""
+    if result is None:
+        return []
+    if isinstance(result, tuple):
+        return list(result[0] or [])
+    if (
+        isinstance(result, list)
+        and len(result) == 2
+        and isinstance(result[0], list)
+        and not hasattr(result[1], "id")
+    ):
+        return list(result[0])
+    if isinstance(result, list):
+        return result
+    return list(result)
+
+
 def _build_filters_and_metadata(
     *,  # Enforce keyword-only arguments
     user_id: Optional[str] = None,
@@ -577,7 +595,7 @@ class Memory(MemoryBase):
         return {"results": vector_store_result}
 
     def _add_to_vector_store(self, messages, metadata, filters, infer):
-        print(
+        logger.debug(
             "[VECTOR] start "
             f"infer={infer} "
             f"user_id={filters.get('user_id')} "
@@ -593,7 +611,10 @@ class Memory(MemoryBase):
                     or message_dict.get("role") is None
                     or message_dict.get("content") is None
                 ):
-                    logger.warning(f"Skipping invalid message format: {message_dict}")
+                    logger.warning(
+                        "Skipping invalid message format (content redacted); role=%s",
+                        message_dict.get("role"),
+                    )
                     continue
 
                 if message_dict["role"] == "system":
@@ -659,7 +680,7 @@ class Memory(MemoryBase):
         except Exception as e:
             logger.error(f"Error in fact_objects: {e}")
             fact_objects = []
-        print(json.dumps({"facts": fact_objects}, ensure_ascii=False, indent=2))
+        logger.debug("Extracted fact objects: %s", json.dumps({"facts": fact_objects}, ensure_ascii=False))
 
         sanitized_fact_records = []
         new_retrieved_facts = []
@@ -680,7 +701,7 @@ class Memory(MemoryBase):
             fact_privacy_meta_by_id[fact_id] = sanitized_record
             fact_privacy_meta.setdefault(sanitized_text, []).append(sanitized_record)
 
-        print(
+        logger.debug(
             "[VECTOR] facts "
             f"extracted={len(fact_objects)} "
             f"sanitized_records={len(sanitized_fact_records)} "
@@ -1417,9 +1438,12 @@ class Memory(MemoryBase):
         keys, encoded_ids = process_telemetry_filters(filters)
         capture_event("spmem_memory.delete_all", self, {"keys": keys, "encoded_ids": encoded_ids, "sync_type": "sync"})
         # delete matching vector memories individually (do NOT reset the collection)
-        memories = self.vector_store.list(filters=filters)[0]
+        memories = _unpack_vector_list_result(
+            self.vector_store.list(filters=filters, limit=10000)
+        )
         for memory in memories:
             self._delete_memory(memory.id)
+            self.db.delete_privacy_mappings_by_memory(memory.id)
 
         logger.info(f"Deleted {len(memories)} memories")
 
@@ -1427,6 +1451,73 @@ class Memory(MemoryBase):
             self.graph.delete_all(filters)
 
         return {"message": "Memories deleted successfully!"}
+
+    def delete_user_data(
+        self,
+        user_id: str,
+        agent_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+    ):
+        """Permanently delete a user's stored memory content across all layers."""
+        if not user_id:
+            raise ValueError("user_id is required for coordinated deletion")
+
+        filters = {"user_id": user_id}
+        if agent_id:
+            filters["agent_id"] = agent_id
+        if run_id:
+            filters["run_id"] = run_id
+
+        keys, encoded_ids = process_telemetry_filters(filters)
+        capture_event(
+            "spmem_memory.delete_user_data",
+            self,
+            {"keys": keys, "encoded_ids": encoded_ids, "sync_type": "sync"},
+        )
+
+        memories = _unpack_vector_list_result(
+            self.vector_store.list(filters=filters, limit=10000)
+        )
+        memory_ids = [memory.id for memory in memories]
+        deleted_links = 0
+        deleted_mappings = 0
+
+        # Remove exact values before searchable references so partial failures fail closed.
+        for memory_id in memory_ids:
+            result = self.db.delete_privacy_mappings_by_memory(memory_id)
+            deleted_links += result["deleted_links"]
+            deleted_mappings += result["deleted_mappings"]
+
+        if agent_id is None and run_id is None:
+            result = self.db.delete_privacy_mappings_by_user(user_id)
+            deleted_links += result["deleted_links"]
+            deleted_mappings += result["deleted_mappings"]
+
+        graph_result = {
+            "deleted_nodes": 0,
+            "deleted_privacy_mappings": 0,
+        }
+        if self.enable_graph:
+            graph_result = self.graph.delete_all(filters) or graph_result
+
+        redacted_history_records = 0
+        for memory in memories:
+            self.vector_store.delete(vector_id=memory.id)
+            redacted_history_records += self.db.redact_history_by_memory(memory.id)
+
+        return {
+            "message": "User data deleted successfully!",
+            "deleted": {
+                "vector_memories": len(memory_ids),
+                "graph_nodes": graph_result.get("deleted_nodes", 0),
+                "privacy_mappings": (
+                    deleted_mappings
+                    + graph_result.get("deleted_privacy_mappings", 0)
+                ),
+                "privacy_mapping_links": deleted_links,
+                "redacted_history_records": redacted_history_records,
+            },
+        }
 
     def history(self, memory_id):
         """
@@ -1857,7 +1948,7 @@ class AsyncMemory(MemoryBase):
         effective_filters: dict,
         infer: bool,
     ):
-        print(
+        logger.debug(
             "[VECTOR] start "
             f"infer={infer} "
             f"user_id={effective_filters.get('user_id')} "
@@ -1873,7 +1964,10 @@ class AsyncMemory(MemoryBase):
                     or message_dict.get("role") is None
                     or message_dict.get("content") is None
                 ):
-                    logger.warning(f"Skipping invalid message format (async): {message_dict}")
+                    logger.warning(
+                        "Skipping invalid message format (async, content redacted); role=%s",
+                        message_dict.get("role"),
+                    )
                     continue
 
                 if message_dict["role"] == "system":
@@ -1932,7 +2026,7 @@ class AsyncMemory(MemoryBase):
         except Exception as e:
             logger.error(f"Error in fact_objects (async): {e}")
             fact_objects = []
-        print(json.dumps({"facts": fact_objects}, ensure_ascii=False, indent=2))
+        logger.debug("Extracted fact objects: %s", json.dumps({"facts": fact_objects}, ensure_ascii=False))
 
         sanitized_fact_records = []
         new_retrieved_facts = []
@@ -1953,7 +2047,7 @@ class AsyncMemory(MemoryBase):
             fact_privacy_meta_by_id[fact_id] = sanitized_record
             fact_privacy_meta.setdefault(sanitized_text, []).append(sanitized_record)
 
-        print(
+        logger.debug(
             "[VECTOR] facts "
             f"extracted={len(fact_objects)} "
             f"sanitized_records={len(sanitized_fact_records)} "
@@ -2669,6 +2763,7 @@ class AsyncMemory(MemoryBase):
                 logger.error(f"Error cleaning up graph for memory {memory_id}: {e}")
 
         await self._delete_memory(memory_id, existing_memory)
+        await asyncio.to_thread(self.db.delete_privacy_mappings_by_memory, memory_id)
         return {"message": "Memory deleted successfully!"}
 
     async def delete_all(self, user_id=None, agent_id=None, run_id=None):
@@ -2695,20 +2790,120 @@ class AsyncMemory(MemoryBase):
 
         keys, encoded_ids = process_telemetry_filters(filters)
         capture_event("spmem_memory.delete_all", self, {"keys": keys, "encoded_ids": encoded_ids, "sync_type": "async"})
-        memories = await asyncio.to_thread(self.vector_store.list, filters=filters)
+        listed_memories = await asyncio.to_thread(
+            self.vector_store.list,
+            filters=filters,
+            limit=10000,
+        )
+        memories = _unpack_vector_list_result(listed_memories)
 
         delete_tasks = []
-        for memory in memories[0]:
+        for memory in memories:
             delete_tasks.append(self._delete_memory(memory.id))
 
         await asyncio.gather(*delete_tasks)
+        await asyncio.gather(
+            *[
+                asyncio.to_thread(
+                    self.db.delete_privacy_mappings_by_memory,
+                    memory.id,
+                )
+                for memory in memories
+            ]
+        )
 
-        logger.info(f"Deleted {len(memories[0])} memories")
+        logger.info(f"Deleted {len(memories)} memories")
 
         if self.enable_graph:
             await asyncio.to_thread(self.graph.delete_all, filters)
 
         return {"message": "Memories deleted successfully!"}
+
+    async def delete_user_data(
+        self,
+        user_id: str,
+        agent_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+    ):
+        """Permanently delete a user's stored memory content across all layers."""
+        if not user_id:
+            raise ValueError("user_id is required for coordinated deletion")
+
+        filters = {"user_id": user_id}
+        if agent_id:
+            filters["agent_id"] = agent_id
+        if run_id:
+            filters["run_id"] = run_id
+
+        keys, encoded_ids = process_telemetry_filters(filters)
+        capture_event(
+            "spmem_memory.delete_user_data",
+            self,
+            {"keys": keys, "encoded_ids": encoded_ids, "sync_type": "async"},
+        )
+
+        listed_memories = await asyncio.to_thread(
+            self.vector_store.list,
+            filters=filters,
+            limit=10000,
+        )
+        memories = _unpack_vector_list_result(listed_memories)
+        memory_ids = [memory.id for memory in memories]
+        deleted_links = 0
+        deleted_mappings = 0
+
+        for memory_id in memory_ids:
+            result = await asyncio.to_thread(
+                self.db.delete_privacy_mappings_by_memory,
+                memory_id,
+            )
+            deleted_links += result["deleted_links"]
+            deleted_mappings += result["deleted_mappings"]
+
+        if agent_id is None and run_id is None:
+            result = await asyncio.to_thread(
+                self.db.delete_privacy_mappings_by_user,
+                user_id,
+            )
+            deleted_links += result["deleted_links"]
+            deleted_mappings += result["deleted_mappings"]
+
+        graph_result = {
+            "deleted_nodes": 0,
+            "deleted_privacy_mappings": 0,
+        }
+        if self.enable_graph:
+            graph_result = (
+                await asyncio.to_thread(self.graph.delete_all, filters)
+                or graph_result
+            )
+
+        redacted_counts = await asyncio.gather(
+            *[
+                asyncio.to_thread(self.db.redact_history_by_memory, memory.id)
+                for memory in memories
+            ]
+        )
+        await asyncio.gather(
+            *[
+                asyncio.to_thread(self.vector_store.delete, vector_id=memory.id)
+                for memory in memories
+            ]
+        )
+
+        return {
+            "message": "User data deleted successfully!",
+            "deleted": {
+                "vector_memories": len(memory_ids),
+                "graph_nodes": graph_result.get("deleted_nodes", 0),
+                "privacy_mappings": (
+                    deleted_mappings
+                    + graph_result.get("deleted_privacy_mappings", 0)
+                ),
+                "privacy_mapping_links": deleted_links,
+                "redacted_history_records": sum(redacted_counts),
+            },
+        }
 
     async def history(self, memory_id):
         """

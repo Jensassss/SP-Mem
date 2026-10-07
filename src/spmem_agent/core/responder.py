@@ -25,8 +25,8 @@ def generate_answer(
 
     answer = str(answer).strip()
 
-    debug_print("\n[FINAL_ANSWER]")
-    debug_print(answer)
+    # Authorized exact values may appear in the answer, so do not persist it in logs.
+    debug_print("\n[FINAL_ANSWER] generated")
 
     return answer
 

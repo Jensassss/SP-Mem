@@ -17,6 +17,9 @@ def prepare_retrieved_memories_for_answer(
     memory: Any,
     consent: bool,
     privacy_lookup_fn: Optional[Callable[[str, str], Optional[Any]]] = None,
+    release_authorization: Any = None,
+    authorization_validator: Optional[Callable[..., bool]] = None,
+    session_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     retrieved_memories = retrieve_memories_hybrid(
         memory=memory,
@@ -25,18 +28,37 @@ def prepare_retrieved_memories_for_answer(
         required_relations=task_plan["required_relations"],
     )
 
-    if consent:
+    release_authorized = False
+    if consent and release_authorization is not None and callable(authorization_validator) and session_id:
+        try:
+            release_authorized = bool(
+                authorization_validator(
+                    release_authorization,
+                    user_id=user_id,
+                    session_id=session_id,
+                )
+            )
+        except Exception:
+            release_authorized = False
+
+    if release_authorized:
         if privacy_lookup_fn is not None:
             retrieved_memories = hydrate_private_values(
                 retrieved_memories=retrieved_memories,
                 user_id=user_id,
                 privacy_lookup_fn=privacy_lookup_fn,
+                release_authorization=release_authorization,
+                authorization_validator=authorization_validator,
+                session_id=session_id,
             )
 
         retrieved_memories = hydrate_vector_values_by_hash(
             retrieved_memories=retrieved_memories,
             user_id=user_id,
             memory=memory,
+            release_authorization=release_authorization,
+            authorization_validator=authorization_validator,
+            session_id=session_id,
         )
 
     return retrieved_memories
@@ -107,6 +129,9 @@ def continue_after_consent(
     memory: Any,
     llm_call: Callable[[str, str], str],
     privacy_lookup_fn: Optional[Callable[[str, str], Optional[Any]]] = None,
+    release_authorization: Any = None,
+    authorization_validator: Optional[Callable[..., bool]] = None,
+    session_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     retrieved_memories = prepare_retrieved_memories_for_answer(
         query=query,
@@ -115,6 +140,9 @@ def continue_after_consent(
         memory=memory,
         consent=consent,
         privacy_lookup_fn=privacy_lookup_fn,
+        release_authorization=release_authorization,
+        authorization_validator=authorization_validator,
+        session_id=session_id,
     )
 
     answer = generate_answer(
@@ -132,7 +160,12 @@ def continue_after_consent(
         "consent": consent,
     }
 
-    if consent and privacy_lookup_fn is None and task_plan.get("needs_privacy"):
+    if (
+        consent
+        and release_authorization is not None
+        and privacy_lookup_fn is None
+        and task_plan.get("needs_privacy")
+    ):
         result["warning"] = (
             "consent=true but privacy_lookup_fn is missing; "
             "answer is generated from currently retrievable (possibly sanitized) values."

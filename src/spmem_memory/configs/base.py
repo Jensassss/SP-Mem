@@ -43,6 +43,13 @@ class MemoryConfig(BaseModel):
         description="Path to the history database",
         default=os.path.join(spmem_dir, "history.db"),
     )
+    privacy_mapping_dir: Optional[str] = Field(
+        description=(
+            "Directory for protected exact-value mappings. Set this explicitly for "
+            "memory construction and inference so both stages use the same store."
+        ),
+        default=None,
+    )
     graph_store: GraphStoreConfig = Field(
         description="Configuration for the graph",
         default_factory=GraphStoreConfig,

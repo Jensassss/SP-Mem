@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-DEBUG: bool = True
+import os
+
+
+DEBUG: bool = os.getenv("SPMEM_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def set_debug(enabled: bool) -> None:

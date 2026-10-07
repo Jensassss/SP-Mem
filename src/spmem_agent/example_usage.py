@@ -15,36 +15,36 @@ from spmem_agent.llm import build_openai_llm_call
 
 
 def main() -> None:
-    neo4j_password = os.getenv("NEO4J_PASSWORD")
+    neo4j_password = os.getenv("SPMEM_NEO4J_PASSWORD")
     if not neo4j_password:
-        raise RuntimeError("Please set NEO4J_PASSWORD before constructing the memory client.")
+        raise RuntimeError("Please set SPMEM_NEO4J_PASSWORD before constructing the memory client.")
 
     # 1) Build your memory client (example config only).
     memory_config = {
         "llm": {
             "provider": "openai",
             "config": {
-                "model": "gpt-5.2-chat",
-                "api_key": os.getenv("OPENAI_API_KEY"),
-                "openai_base_url": os.getenv("OPENAI_BASE_URL"),
+                "model": os.environ["SPMEM_MEMORY_MODEL_ID"],
+                "api_key": os.environ["SPMEM_MEMORY_API_KEY"],
+                "openai_base_url": os.getenv("SPMEM_MEMORY_BASE_URL"),
             },
         },
         "embedder": {
             "provider": "openai",
             "config": {
-                "model": "text-embedding-3-small",
+                "model": os.environ["SPMEM_EMBEDDING_MODEL_ID"],
                 "embedding_dims": 1536,
-                "openai_base_url": "https://api.openai.com/v1",
-                "api_key": os.getenv("OPENAI_API_KEY"),
+                "openai_base_url": os.getenv("SPMEM_EMBEDDING_BASE_URL"),
+                "api_key": os.environ["SPMEM_EMBEDDING_API_KEY"],
             },
         },
         "graph_store": {
             "provider": "neo4j",
             "config": {
-                "url": "neo4j://localhost:7687",
-                "username": "neo4j",
+                "url": os.getenv("SPMEM_NEO4J_URL", "neo4j://127.0.0.1:7687"),
+                "username": os.getenv("SPMEM_NEO4J_USERNAME", "neo4j"),
                 "password": neo4j_password,
-                "database": "neo4j",
+                "database": os.getenv("SPMEM_NEO4J_DATABASE", "neo4j"),
             },
         },
         "vector_store": {
@@ -57,14 +57,15 @@ def main() -> None:
             },
         },
         "history_db_path": str(Path("./artifacts/history_demo.db").resolve()),
+        "privacy_mapping_dir": str(Path("./artifacts/privacy_mappings").resolve()),
     }
     memory = Memory.from_config(memory_config)
 
     # 2) Build llm_call for analysis + answer.
     llm_call = build_openai_llm_call(
-        model="gpt-5.2-chat",
-        api_key=os.getenv("OPENAI_API_KEY", ""),
-        base_url=os.getenv("OPENAI_BASE_URL"),
+        model=os.environ["SPMEM_GPT52_MODEL_ID"],
+        api_key=os.environ["SPMEM_GPT52_API_KEY"],
+        base_url=os.getenv("SPMEM_GPT52_BASE_URL"),
         temperature=0.0,
     )
 
@@ -79,14 +80,14 @@ def main() -> None:
     print("\n[STEP 1]")
     print(json.dumps(first, ensure_ascii=False, indent=2))
 
-    # 5) Step 2: continue based on consent.
+    # 5) Step 2: make the paper's single consent decision.
     if first.get("status") == "awaiting_consent":
         session_id = first["session_id"]
 
         # Example: user agrees.
-        second = agent.continue_with_consent(session_id=session_id, consent=True)
+        final = agent.continue_with_consent(session_id=session_id, consent=True)
         print("\n[STEP 2: consent=true]")
-        print(json.dumps(second, ensure_ascii=False, indent=2))
+        print(json.dumps(final, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

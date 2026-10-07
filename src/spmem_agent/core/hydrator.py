@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from typing import Any, Callable, Dict, List, Optional
 
 from .debug import debug_print
@@ -11,24 +10,36 @@ def lookup_privacy_value_with_scope(
     privacy_ref_id: str,
     user_id: str,
     result_item: Dict[str, Any],
+    release_authorization: Any,
+    authorization_validator: Callable[..., bool],
+    session_id: str,
 ) -> Optional[Any]:
     try:
-        return privacy_lookup_fn(privacy_ref_id, user_id)
-    except TypeError:
         return privacy_lookup_fn(
             privacy_ref_id=privacy_ref_id,
             user_id=user_id,
             agent_id=result_item.get("agent_id"),
             run_id=result_item.get("run_id"),
+            release_authorization=release_authorization,
+            authorization_validator=authorization_validator,
+            session_id=session_id,
         )
+    except TypeError:
+        # An old lookup implementation that cannot validate release authorization
+        # must fail closed rather than expose a raw value.
+        return None
 
 
 def hydrate_private_values(
     retrieved_memories: List[Dict[str, Any]],
     user_id: str,
     privacy_lookup_fn: Callable[[str, str], Optional[Any]],
+    release_authorization: Any,
+    authorization_validator: Callable[..., bool],
+    session_id: str,
 ) -> List[Dict[str, Any]]:
     hydrated = []
+    resolved_count = 0
 
     debug_print("\n" + "-" * 80)
     debug_print("[PRIVACY_HYDRATION] START")
@@ -61,14 +72,16 @@ def hydrate_private_values(
                     privacy_ref_id=privacy_ref_id,
                     user_id=user_id,
                     result_item=item,
+                    release_authorization=release_authorization,
+                    authorization_validator=authorization_validator,
+                    session_id=session_id,
                 )
                 if raw_value is None:
                     debug_print(f"[PRIVACY_HYDRATION] unresolved {ref_key}={privacy_ref_id}")
                     continue
 
-                debug_print(
-                    f"[PRIVACY_HYDRATION] resolved {ref_key}={privacy_ref_id} -> {raw_value}"
-                )
+                resolved_count += 1
+                debug_print(f"[PRIVACY_HYDRATION] authorized {ref_key}={privacy_ref_id}")
 
                 if ref_key == "privacy_ref_id":
                     item["resolved_value"] = raw_value
@@ -82,8 +95,7 @@ def hydrate_private_values(
         group_copy["results"] = new_results
         hydrated.append(group_copy)
 
-    debug_print("[PRIVACY_HYDRATION] hydrated_result:")
-    debug_print(json.dumps(hydrated, ensure_ascii=False, indent=2))
+    debug_print(f"[PRIVACY_HYDRATION] authorized_values={resolved_count}")
     debug_print("[PRIVACY_HYDRATION] END")
     debug_print("-" * 80)
 
@@ -95,6 +107,9 @@ def lookup_vector_raw_value_by_hash(
     user_id: str,
     privacy_type: str,
     entity_hash: str,
+    release_authorization: Any,
+    authorization_validator: Callable[..., bool],
+    session_id: str,
 ) -> Optional[Any]:
     if not privacy_type or not entity_hash:
         return None
@@ -112,9 +127,14 @@ def lookup_vector_raw_value_by_hash(
             user_id=user_id,
             privacy_type=privacy_type,
             raw_hash=entity_hash,
+            release_authorization=release_authorization,
+            authorization_validator=authorization_validator,
+            session_id=session_id,
         )
     except TypeError:
-        mapping = get_privacy_mapping(user_id, privacy_type, entity_hash)
+        # An old storage implementation without authorization enforcement
+        # is not eligible to release exact values.
+        return None
 
     if not isinstance(mapping, dict):
         return None
@@ -126,8 +146,12 @@ def hydrate_vector_values_by_hash(
     retrieved_memories: List[Dict[str, Any]],
     user_id: str,
     memory: Any,
+    release_authorization: Any,
+    authorization_validator: Callable[..., bool],
+    session_id: str,
 ) -> List[Dict[str, Any]]:
     hydrated = []
+    resolved_count = 0
 
     debug_print("\n" + "-" * 80)
     debug_print("[VECTOR_HASH_HYDRATION] START")
@@ -182,13 +206,17 @@ def hydrate_vector_values_by_hash(
                     user_id=user_id,
                     privacy_type=privacy_type,
                     entity_hash=entity_hash,
+                    release_authorization=release_authorization,
+                    authorization_validator=authorization_validator,
+                    session_id=session_id,
                 )
                 if raw_value is None:
                     continue
 
+                resolved_count += 1
                 debug_print(
-                    f"[VECTOR_HASH_HYDRATION] resolved privacy_type={privacy_type}, "
-                    f"entity_hash={entity_hash} -> {raw_value}"
+                    f"[VECTOR_HASH_HYDRATION] authorized privacy_type={privacy_type}, "
+                    f"entity_hash={entity_hash}"
                 )
 
                 resolved_entity = dict(privacy_entity)
@@ -208,8 +236,7 @@ def hydrate_vector_values_by_hash(
         group_copy["results"] = new_results
         hydrated.append(group_copy)
 
-    debug_print("[VECTOR_HASH_HYDRATION] hydrated_result:")
-    debug_print(json.dumps(hydrated, ensure_ascii=False, indent=2))
+    debug_print(f"[VECTOR_HASH_HYDRATION] authorized_values={resolved_count}")
     debug_print("[VECTOR_HASH_HYDRATION] END")
     debug_print("-" * 80)
 

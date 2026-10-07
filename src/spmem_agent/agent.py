@@ -6,6 +6,11 @@ import uuid
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from . import query_processor as qp
+from .core.authorization import (
+    PrivacyReleaseAuthorization,
+    PrivacyReleaseAuthorizer,
+    normalize_privacy_type,
+)
 
 
 class PrivacyAwareAgent:
@@ -14,9 +19,10 @@ class PrivacyAwareAgent:
 
     Flow:
     1) Analyze query -> required entities + privacy need.
-    2) If privacy is needed, return awaiting_consent state.
-    3) If consent is false, answer from sanitized retrieval results.
-    4) If consent is true, hydrate private values by privacy_ref_id/hash and answer.
+    2) If privacy is needed, request consent once for this task.
+    3) If consent is denied, answer from sanitized retrieval results.
+    4) If consent is granted, issue an internal request-scoped capability and
+       hydrate only the private fields required by the task.
     """
 
     def __init__(
@@ -25,11 +31,13 @@ class PrivacyAwareAgent:
         llm_call: Callable[[str, str], str],
         *,
         privacy_lookup_fn: Optional[Callable[..., Optional[Any]]] = None,
+        release_authorizer: Optional[PrivacyReleaseAuthorizer] = None,
     ) -> None:
         self.memory = memory
         self.llm_call = llm_call
         self.qp = qp
         self.privacy_lookup_fn = privacy_lookup_fn or self._autowire_privacy_lookup(memory)
+        self._release_authorizer = release_authorizer or PrivacyReleaseAuthorizer()
         self._pending_sessions: Dict[str, Dict[str, Any]] = {}
 
     @staticmethod
@@ -61,6 +69,8 @@ class PrivacyAwareAgent:
             "query": query,
             "user_id": user_id,
             "task_plan": task_plan,
+            "stage": "awaiting_consent",
+            "task_consent": False,
         }
 
         privacy_fields = ", ".join(task_plan.get("privacy_entities", [])) or "sensitive fields"
@@ -74,6 +84,15 @@ class PrivacyAwareAgent:
                 "Do I have your permission to use these fields for this request?"
             ),
         }
+
+    @staticmethod
+    def _privacy_fields(task_plan: Dict[str, Any]) -> List[str]:
+        fields = []
+        for value in task_plan.get("privacy_entities", []):
+            normalized = normalize_privacy_type(value)
+            if normalized and normalized not in fields:
+                fields.append(normalized)
+        return fields
 
     @staticmethod
     def _materialize_precise_values(retrieved_memories: Any) -> Any:
@@ -341,7 +360,12 @@ class PrivacyAwareAgent:
                 session_id=session_id,
             )
 
-        return self._execute(query=query, user_id=user_id, task_plan=task_plan, consent=False)
+        return self._execute(
+            query=query,
+            user_id=user_id,
+            task_plan=task_plan,
+            task_consent=False,
+        )
 
     def continue_with_consent(self, session_id: str, consent: bool) -> Dict[str, Any]:
         pending = self._pending_sessions.get(session_id)
@@ -351,14 +375,38 @@ class PrivacyAwareAgent:
                 "message": f"Unknown or expired session_id: {session_id}",
             }
 
-        result = self._execute(
-            query=pending["query"],
-            user_id=pending["user_id"],
-            task_plan=pending["task_plan"],
-            consent=bool(consent),
-        )
-        self._pending_sessions.pop(session_id, None)
-        return result
+        if pending.get("stage") != "awaiting_consent":
+            return {
+                "status": "error",
+                "message": f"Session {session_id} is not awaiting consent.",
+            }
+
+        release_authorization: Optional[PrivacyReleaseAuthorization] = None
+        try:
+            if consent:
+                privacy_fields = self._privacy_fields(pending["task_plan"])
+                if not privacy_fields:
+                    return {
+                        "status": "error",
+                        "message": "No concrete privacy fields are available for authorization.",
+                    }
+                release_authorization = self._release_authorizer.issue(
+                    session_id=session_id,
+                    user_id=pending["user_id"],
+                    allowed_privacy_types=privacy_fields,
+                )
+
+            return self._execute(
+                query=pending["query"],
+                user_id=pending["user_id"],
+                task_plan=pending["task_plan"],
+                task_consent=bool(consent),
+                session_id=session_id,
+                release_authorization=release_authorization,
+            )
+        finally:
+            self._release_authorizer.revoke(release_authorization)
+            self._pending_sessions.pop(session_id, None)
 
     def run(
         self,
@@ -370,9 +418,9 @@ class PrivacyAwareAgent:
     ) -> Dict[str, Any]:
         """
         Convenience API:
-        - consent=None: start flow
-        - consent is bool and session_id provided: continue an awaiting-consent session
-        - consent is bool and no session_id: one-shot execution
+        - no decisions: start flow
+        - consent + session_id: continue the single consent decision
+        - consent without session_id: start and, if needed, answer that decision
         """
         if consent is not None and session_id:
             return self.continue_with_consent(session_id=session_id, consent=consent)
@@ -380,19 +428,25 @@ class PrivacyAwareAgent:
         analyzed = self.analyze(query)
         task_plan = analyzed["task_plan"]
 
-        if task_plan.get("needs_privacy", False) and consent is None:
-            return self._build_awaiting_consent_response(
+        if task_plan.get("needs_privacy", False):
+            first = self._build_awaiting_consent_response(
                 query=query,
                 user_id=user_id,
                 task_plan=task_plan,
                 session_id=session_id,
+            )
+            if consent is None:
+                return first
+            return self.continue_with_consent(
+                session_id=first["session_id"],
+                consent=bool(consent),
             )
 
         return self._execute(
             query=query,
             user_id=user_id,
             task_plan=task_plan,
-            consent=bool(consent),
+            task_consent=False,
         )
 
     def _execute(
@@ -401,22 +455,36 @@ class PrivacyAwareAgent:
         query: str,
         user_id: str,
         task_plan: Dict[str, Any],
-        consent: bool,
+        task_consent: bool,
+        session_id: Optional[str] = None,
+        release_authorization: Optional[PrivacyReleaseAuthorization] = None,
     ) -> Dict[str, Any]:
+        release_authorized = bool(
+            release_authorization
+            and session_id
+            and self._release_authorizer.validate(
+                release_authorization,
+                user_id=user_id,
+                session_id=session_id,
+            )
+        )
         retrieved_memories = self.qp.prepare_retrieved_memories_for_answer(
             query=query,
             user_id=user_id,
             task_plan=task_plan,
             memory=self.memory,
-            consent=consent,
+            consent=release_authorized,
             privacy_lookup_fn=self.privacy_lookup_fn,
+            release_authorization=release_authorization,
+            authorization_validator=self._release_authorizer.validate,
+            session_id=session_id,
         )
-        if consent:
+        if release_authorized:
             retrieved_memories = self._materialize_precise_values(retrieved_memories)
 
         prompt_retrieved_memories = self._compact_retrieved_memories_for_prompt(
             retrieved_memories,
-            consent=consent,
+            consent=release_authorized,
         )
 
         answer = self.qp.generate_answer(
@@ -432,12 +500,13 @@ class PrivacyAwareAgent:
             "retrieved_memories": retrieved_memories,
             "retrieved_memories_for_prompt": prompt_retrieved_memories,
             "answer": answer,
-            "consent": consent,
+            "consent": task_consent,
+            "exact_values_released": release_authorized,
         }
 
-        if consent and self.privacy_lookup_fn is None and task_plan.get("needs_privacy"):
+        if release_authorized and self.privacy_lookup_fn is None and task_plan.get("needs_privacy"):
             result["warning"] = (
-                "consent=true but privacy_lookup_fn is missing; "
+                "consent was granted but privacy_lookup_fn is missing; "
                 "graph private values may remain sanitized."
             )
 

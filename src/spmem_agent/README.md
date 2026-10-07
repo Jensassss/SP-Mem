@@ -9,10 +9,10 @@ It does not modify code in other project folders.
 2. Detect whether required entities include private fields.
 3. If private data is needed, return `awaiting_consent`.
 4. If consent is `false`, answer from sanitized memory retrieval.
-5. If consent is `true`, hydrate private values:
+5. If consent is `true`, issue an internal request-scoped authorization and hydrate only required private values:
    - Graph path: by `privacy_ref_id`
    - Vector path: by `entity_hash`
-6. Generate final answer from retrieved evidence.
+7. Revoke the authorization after generating the final answer.
 
 ## Structure
 
@@ -25,6 +25,7 @@ It does not modify code in other project folders.
 - `core/planner.py`: query analysis and task-plan building.
 - `core/retriever.py`: graph/vector/hybrid retrieval.
 - `core/hydrator.py`: privacy value hydration (`privacy_ref_id`, `entity_hash`).
+- `core/authorization.py`: short-lived, field-scoped protected-store authorization.
 - `core/responder.py`: final answer generation from structured memory evidence.
 - `core/pipeline.py`: end-to-end functions (`process_query`, `continue_after_consent`).
 - `core/debug.py`: debug switch and debug print.
@@ -59,16 +60,16 @@ It does not modify code in other project folders.
 
 - Continue an `awaiting_consent` session.
 - `consent=False` -> sanitized answer
-- `consent=True` -> hydrated precise-value answer (when lookup data exists)
+- `consent=True` -> authorized precise-value hydration and answer; the internal grant is then revoked
 
 ### `PrivacyAwareAgent.run(query, user_id, consent=None, session_id=None)`
 
 Convenience wrapper:
 - `consent=None`: start flow
-- `consent` + `session_id`: continue pending session
-- `consent` without `session_id`: one-shot execute
+- `consent` + `session_id`: continue the single task-level consent decision
 
 ## Notes
 
 - If `memory.graph.lookup_privacy_value` exists, it is auto-wired for graph privacy hydration.
-- For vector hydration, it uses hash-based mapping lookup through `memory.db`.
+- Graph and vector raw-value lookups fail closed without a valid release authorization.
+- Authorizations are bound to the current session, user, and confirmed privacy fields.

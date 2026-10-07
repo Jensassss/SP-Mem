@@ -294,7 +294,7 @@ class SQLiteManager:
     def __del__(self):
         self.close()
 
-    def get_privacy_mapping(self, user_id: str, privacy_type: str, raw_hash: str):
+    def _get_privacy_mapping_unchecked(self, user_id: str, privacy_type: str, raw_hash: str):
         with self._lock:
             cursor = self.connection.execute(
                 """
@@ -319,6 +319,31 @@ class SQLiteManager:
             "created_at": row[7],
             "updated_at": row[8],
         }
+
+    def get_privacy_mapping(
+        self,
+        user_id: str,
+        privacy_type: str,
+        raw_hash: str,
+        *,
+        release_authorization=None,
+        authorization_validator=None,
+        session_id: str | None = None,
+    ):
+        if not callable(authorization_validator):
+            return None
+        try:
+            authorized = authorization_validator(
+                release_authorization,
+                user_id=user_id,
+                privacy_type=privacy_type,
+                session_id=session_id,
+            )
+        except Exception:
+            authorized = False
+        if not authorized:
+            return None
+        return self._get_privacy_mapping_unchecked(user_id, privacy_type, raw_hash)
     
     def upsert_privacy_mapping(
         self,
@@ -391,7 +416,9 @@ class SQLiteManager:
                 self.connection.execute("ROLLBACK")
                 raise
 
-        return self.get_privacy_mapping(user_id, privacy_type, raw_hash)
+        # The writer needs the stable mapping id immediately after insertion.
+        # This internal read is not exposed to the response-generation path.
+        return self._get_privacy_mapping_unchecked(user_id, privacy_type, raw_hash)
     
     def link_mapping_to_memory(self, mapping_id: str, memory_id: str):
         now = datetime.now(timezone.utc).isoformat()
@@ -420,7 +447,14 @@ class SQLiteManager:
                 self.connection.execute("ROLLBACK")
                 raise
 
-    def list_privacy_mappings_by_memory(self, memory_id: str):
+    def list_privacy_mappings_by_memory(
+        self,
+        memory_id: str,
+        *,
+        release_authorization=None,
+        authorization_validator=None,
+        session_id: str | None = None,
+    ):
         with self._lock:
             cursor = self.connection.execute(
                 """
@@ -448,7 +482,7 @@ class SQLiteManager:
                 )
                 rows = cursor.fetchall()
 
-        return [
+        mappings = [
             {
                 "id": row[0],
                 "memory_id": row[1],
@@ -462,6 +496,23 @@ class SQLiteManager:
             }
             for row in rows
         ]
+        if not callable(authorization_validator):
+            return []
+
+        authorized_mappings = []
+        for mapping in mappings:
+            try:
+                authorized = authorization_validator(
+                    release_authorization,
+                    user_id=mapping["user_id"],
+                    privacy_type=mapping["privacy_type"],
+                    session_id=session_id,
+                )
+            except Exception:
+                authorized = False
+            if authorized:
+                authorized_mappings.append(mapping)
+        return authorized_mappings
     
     def delete_privacy_mappings_by_memory(self, memory_id: str):
         now = datetime.now(timezone.utc).isoformat()
@@ -470,13 +521,14 @@ class SQLiteManager:
                 self.connection.execute("BEGIN")
                 # Bring legacy rows into link table first, then unlink current memory.
                 self._backfill_privacy_mapping_links()
-                self.connection.execute(
+                cursor = self.connection.execute(
                     """
                     DELETE FROM privacy_mapping_links
                     WHERE memory_id = ?
                     """,
                     (memory_id,),
                 )
+                deleted_links = cursor.rowcount
                 self.connection.execute(
                     """
                     UPDATE privacy_mappings
@@ -487,7 +539,7 @@ class SQLiteManager:
                 )
 
                 # Remove only orphan mappings (no memory links remain).
-                self.connection.execute(
+                cursor = self.connection.execute(
                     """
                     DELETE FROM privacy_mappings
                     WHERE id IN (
@@ -499,6 +551,7 @@ class SQLiteManager:
                     )
                     """
                 )
+                deleted_mappings = cursor.rowcount
 
                 # Refresh representative memory_id for surviving mappings.
                 self.connection.execute(
@@ -520,6 +573,62 @@ class SQLiteManager:
                     (now,),
                 )
                 self.connection.execute("COMMIT")
+                return {
+                    "deleted_links": max(deleted_links, 0),
+                    "deleted_mappings": max(deleted_mappings, 0),
+                }
+            except Exception:
+                self.connection.execute("ROLLBACK")
+                raise
+
+    def delete_privacy_mappings_by_user(self, user_id: str) -> Dict[str, int]:
+        """Delete every exact-value mapping owned by a user."""
+        with self._lock:
+            try:
+                self.connection.execute("BEGIN")
+                cursor = self.connection.execute(
+                    """
+                    DELETE FROM privacy_mapping_links
+                    WHERE mapping_id IN (
+                        SELECT id FROM privacy_mappings WHERE user_id = ?
+                    )
+                    """,
+                    (user_id,),
+                )
+                deleted_links = cursor.rowcount
+                cursor = self.connection.execute(
+                    "DELETE FROM privacy_mappings WHERE user_id = ?",
+                    (user_id,),
+                )
+                deleted_mappings = cursor.rowcount
+                self.connection.execute("COMMIT")
+                return {
+                    "deleted_links": max(deleted_links, 0),
+                    "deleted_mappings": max(deleted_mappings, 0),
+                }
+            except Exception:
+                self.connection.execute("ROLLBACK")
+                raise
+
+    def redact_history_by_memory(self, memory_id: str) -> int:
+        """Erase stored memory content while retaining a content-free audit row."""
+        with self._lock:
+            try:
+                self.connection.execute("BEGIN")
+                cursor = self.connection.execute(
+                    """
+                    UPDATE history
+                    SET old_memory = NULL,
+                        new_memory = NULL,
+                        is_deleted = 1,
+                        updated_at = ?
+                    WHERE memory_id = ?
+                    """,
+                    (datetime.now(timezone.utc).isoformat(), memory_id),
+                )
+                redacted_records = cursor.rowcount
+                self.connection.execute("COMMIT")
+                return max(redacted_records, 0)
             except Exception:
                 self.connection.execute("ROLLBACK")
                 raise

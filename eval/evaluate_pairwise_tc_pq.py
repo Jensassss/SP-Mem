@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+# Migrated from the experiment tree. See docs/original_workflow.md for provenance.
+
 import argparse
 import json
 import os
@@ -83,6 +85,40 @@ Return ONLY JSON:
 {{"winner":"A|B|TIE","reason":"one concise sentence"}}
 """
 
+TC_PAIR_PROMPT_NO_REASON = """\
+You are an impartial judge for pairwise evaluation of conversational assistants.
+
+Compare Assistant A and Assistant B for Task Completion (TC).
+
+Judging principles:
+- Evaluate whether the response completes the user task and required deliverables.
+- Focus on instruction-following, completeness, relevance, and practical usefulness.
+- Do not prefer an answer because it is longer, more formal, or more verbose.
+- Do not let position (A vs B) influence your decision.
+- Output winner = "A" if Assistant A is clearly better on TC.
+- Output winner = "B" if Assistant B is clearly better on TC.
+- If both are similarly good or similarly weak, output TIE.
+
+
+## Task Description
+{scenario}
+
+## User Query
+{query}
+
+## Required Entities (for completion)
+{required_entities}
+
+## Assistant A Response
+{response_a}
+
+## Assistant B Response
+{response_b}
+
+Return ONLY JSON:
+{{"winner":"A|B|TIE"}}
+"""
+
 PQ_PAIR_PROMPT = """\
 You are an impartial judge for pairwise evaluation of conversational assistants.
 
@@ -116,6 +152,41 @@ Judging principles:
 
 Return ONLY JSON:
 {{"winner":"A|B|TIE","reason":"one concise sentence"}}
+"""
+
+PQ_PAIR_PROMPT_NO_REASON = """\
+You are an impartial judge for pairwise evaluation of conversational assistants.
+
+Compare Assistant A and Assistant B on Personalization Quality (PQ).
+
+Judging principles:
+- Evaluate whether the response uses user preferences correctly and meaningfully.
+- "Meaningful" means preferences materially shape content, tone, examples, or recommendations.
+- Penalize hallucinated, incorrect, or irrelevant preference usage.
+- Do not prefer an answer because it is longer, more formal, or more verbose.
+- Do not let response position (A vs B) influence your decision.
+- Output winner = "A" if Assistant A is clearly better on PQ.
+- Output winner = "B" if Assistant B is clearly better on PQ.
+- Output winner = "TIE" if both are similarly good or similarly weak.
+
+
+## Required Preference Types
+{preference_entities}
+
+## User Preference Values (Ground Truth)
+{preference_values}
+
+## User Query
+{query}
+
+## Assistant A Response
+{response_a}
+
+## Assistant B Response
+{response_b}
+
+Return ONLY JSON:
+{{"winner":"A|B|TIE"}}
 """
 
 
@@ -532,12 +603,14 @@ def _judge_tc_pair(
     judge_client: OpenAI,
     judge_model: str,
     timeout_seconds: float,
+    no_reasons: bool = False,
 ) -> Dict[str, Any]:
     def _build_prompt(x_a: Dict[str, Any], x_b: Dict[str, Any]) -> str:
         ra = _extract_response_text(x_a)
         rb = _extract_response_text(x_b)
         required_entities_text = _extract_required_entities_text(x_a, x_b)
-        return TC_PAIR_PROMPT.format(
+        prompt_template = TC_PAIR_PROMPT_NO_REASON if no_reasons else TC_PAIR_PROMPT
+        return prompt_template.format(
             scenario=x_a.get("scenario", x_b.get("scenario", "")),
             query=x_a.get("query", x_b.get("query", "")),
             required_entities=required_entities_text,
@@ -563,6 +636,7 @@ def _judge_pq_pair(
     judge_client: OpenAI,
     judge_model: str,
     timeout_seconds: float,
+    no_reasons: bool = False,
 ) -> Dict[str, Any]:
     pref_entities = item_a.get("pref_entities", item_b.get("pref_entities", []))
     if not isinstance(pref_entities, list):
@@ -572,7 +646,8 @@ def _judge_pq_pair(
     def _build_prompt(x_a: Dict[str, Any], x_b: Dict[str, Any]) -> str:
         ra = _extract_response_text(x_a)
         rb = _extract_response_text(x_b)
-        return PQ_PAIR_PROMPT.format(
+        prompt_template = PQ_PAIR_PROMPT_NO_REASON if no_reasons else PQ_PAIR_PROMPT
+        return prompt_template.format(
             preference_entities=", ".join(pref_entities) or "none",
             preference_values=json.dumps(pref_values, ensure_ascii=False),
             query=x_a.get("query", x_b.get("query", "")),
@@ -599,6 +674,7 @@ def _score_one_pair(
     *,
     score_error_rows: bool,
     timeout_seconds: float,
+    no_reasons: bool = False,
 ) -> Dict[str, Any]:
     item_a = pair["a"]
     item_b = pair["b"]
@@ -621,7 +697,8 @@ def _score_one_pair(
         }
         for m in metrics:
             out[f"{m}_winner"] = None
-            out[f"{m}_reason"] = ""
+            if not no_reasons:
+                out[f"{m}_reason"] = ""
             out[f"{m}_status"] = "skipped_error_row"
         return out
 
@@ -638,9 +715,10 @@ def _score_one_pair(
     }
 
     if "TC" in metrics:
-        rs = _judge_tc_pair(item_a, item_b, judge_client, judge_model, timeout_seconds)
+        rs = _judge_tc_pair(item_a, item_b, judge_client, judge_model, timeout_seconds, no_reasons=no_reasons)
         out["TC_winner"] = rs.get("winner")
-        out["TC_reason"] = rs.get("reason", "")
+        if not no_reasons:
+            out["TC_reason"] = rs.get("reason", "")
         out["TC_status"] = rs.get("status", "")
         out["TC_forward_winner"] = rs.get("forward_winner")
         out["TC_reverse_winner_raw"] = rs.get("reverse_winner_raw")
@@ -649,9 +727,10 @@ def _score_one_pair(
         out["TC_swap_agree"] = rs.get("swap_agree")
 
     if "PQ" in metrics:
-        rs = _judge_pq_pair(item_a, item_b, profile, judge_client, judge_model, timeout_seconds)
+        rs = _judge_pq_pair(item_a, item_b, profile, judge_client, judge_model, timeout_seconds, no_reasons=no_reasons)
         out["PQ_winner"] = rs.get("winner")
-        out["PQ_reason"] = rs.get("reason", "")
+        if not no_reasons:
+            out["PQ_reason"] = rs.get("reason", "")
         out["PQ_status"] = rs.get("status", "")
         out["PQ_forward_winner"] = rs.get("forward_winner")
         out["PQ_reverse_winner_raw"] = rs.get("reverse_winner_raw")
@@ -706,8 +785,9 @@ def _aggregate_run(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
                 mode_out[f"{m}_A_win_rate"] = a_win / scored
                 mode_out[f"{m}_B_win_rate"] = b_win / scored
                 mode_out[f"{m}_tie_rate"] = tie / scored
-                mode_out[f"{m}_A_pair_score"] = (a_win + 0.5 * tie) / scored
-                mode_out[f"{m}_B_pair_score"] = (b_win + 0.5 * tie) / scored
+                # Paper metric: win-tie rate (W + T) / N, not half-credit ties.
+                mode_out[f"{m}_A_pair_score"] = (a_win + tie) / scored
+                mode_out[f"{m}_B_pair_score"] = (b_win + tie) / scored
                 mode_out[f"{m}_swap_agree_rate"] = swap_agree / scored
             else:
                 mode_out[f"{m}_A_win_rate"] = None
@@ -780,8 +860,9 @@ def _build_group_run_summary(
             out[f"{metric}_A_win_rate"] = a_win / scored
             out[f"{metric}_B_win_rate"] = b_win / scored
             out[f"{metric}_tie_rate"] = tie / scored
-            out[f"{metric}_A_pair_score"] = (a_win + 0.5 * tie) / scored
-            out[f"{metric}_B_pair_score"] = (b_win + 0.5 * tie) / scored
+            # Paper metric: win-tie rate (W + T) / N, not half-credit ties.
+            out[f"{metric}_A_pair_score"] = (a_win + tie) / scored
+            out[f"{metric}_B_pair_score"] = (b_win + tie) / scored
             out[f"{metric}_swap_agree_rate"] = swap_agree / scored
         else:
             out[f"{metric}_A_win_rate"] = None
@@ -873,11 +954,12 @@ def _aggregate_runs(run_summaries: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 def _judge_config_from_env() -> Dict[str, str]:
+    model = os.getenv("SPMEM_JUDGE_MODEL_ID", "gpt-4.1")
     return {
-        "name": "gpt-4.1",
-        "model": os.getenv("JUDGE_GPT41_MODEL", "gpt-4.1"),
-        "base_url": os.getenv("JUDGE_GPT41_BASE_URL") or os.getenv("OPENAI_BASE_URL", ""),
-        "api_key": os.getenv("JUDGE_GPT41_API_KEY") or os.getenv("OPENAI_API_KEY", ""),
+        "name": os.getenv("SPMEM_JUDGE_NAME") or model,
+        "model": model,
+        "base_url": os.getenv("SPMEM_JUDGE_BASE_URL") or os.getenv("OPENAI_BASE_URL", ""),
+        "api_key": os.getenv("SPMEM_JUDGE_API_KEY") or os.getenv("OPENAI_API_KEY", ""),
     }
 
 
@@ -897,12 +979,12 @@ def main() -> None:
     )
     parser.add_argument(
         "--preference-profile-file",
-        default=None,
+        required=True,
         help="Ground-truth preference jsonl (line-index aligned by user_index).",
     )
     parser.add_argument(
         "--output-dir",
-        default=str(Path(__file__).resolve().parents[1] / "eval_outputs" / "scores_pairwise"),
+        default=str(Path(__file__).resolve().parents[1] / "outputs" / "evaluations" / "pairwise"),
         help="Output directory.",
     )
     parser.add_argument("--runs", type=int, default=1, help="Number of repeated judge runs.")
@@ -927,6 +1009,11 @@ def main() -> None:
         type=float,
         default=90.0,
         help="Timeout (seconds) for each judge API call.",
+    )
+    parser.add_argument(
+        "--no-reasons",
+        action="store_true",
+        help="Ask the judge to return only winners and omit reason fields from JSONL outputs.",
     )
     args = parser.parse_args()
 
@@ -957,7 +1044,7 @@ def main() -> None:
     judge = _judge_config_from_env()
     if not judge["base_url"] or not judge["api_key"]:
         raise ValueError(
-            "Judge base_url/api_key missing. Set JUDGE_GPT41_BASE_URL/JUDGE_GPT41_API_KEY "
+            "Judge base_url/api_key missing. Set SPMEM_JUDGE_BASE_URL/SPMEM_JUDGE_API_KEY "
             "or OPENAI_BASE_URL/OPENAI_API_KEY."
         )
 
@@ -979,6 +1066,7 @@ def main() -> None:
     print("judge_model:", judge["model"])
     print("runs:", args.runs)
     print("score_error_rows:", args.score_error_rows)
+    print("no_reasons:", args.no_reasons)
     print("judge_timeout_seconds:", args.judge_timeout_seconds)
     print("=" * 80)
 
@@ -1005,6 +1093,7 @@ def main() -> None:
                     judge["model"],
                     score_error_rows=bool(args.score_error_rows),
                     timeout_seconds=float(args.judge_timeout_seconds),
+                    no_reasons=bool(args.no_reasons),
                 )
                 scored_rows.append(scored)
                 run_file.write(json.dumps(scored, ensure_ascii=False) + "\n")
@@ -1029,6 +1118,7 @@ def main() -> None:
         "preference_profile_file": str(preference_profile_path),
         "runs": int(args.runs),
         "score_error_rows": bool(args.score_error_rows),
+        "no_reasons": bool(args.no_reasons),
         "pairing": pairing_stats,
         "run_files": run_files,
         "aggregate": aggregate,
