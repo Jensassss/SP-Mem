@@ -1,8 +1,4 @@
-<h1 align="center">SP-Mem</h1>
-
-<p align="center">
-  <a href="https://arxiv.org/abs/2608.16551"><strong>What to Remember, What to Reveal: Privacy-Aware Memory for Conversational Agents</strong></a>
-</p>
+# What to Remember, What to Reveal: Privacy-Aware Memory for Conversational Agents
 
 <p align="center">
   <a href="https://arxiv.org/abs/2608.16551"><img height="24" alt="arXiv" src="https://img.shields.io/badge/arXiv-2608.16551-b31b1b.svg?logo=arxiv&amp;logoColor=white"></a>
