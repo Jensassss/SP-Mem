@@ -9,4 +9,4 @@
 
 The exact upstream commit from which the original private working copy was derived is not recorded in the available public Git history; this notice therefore does not claim an unsupported snapshot identifier.
 
-SP-Mem-specific privacy processing, partitioned exact-value storage, consent-aware retrieval, experiment drivers, and evaluation code are modifications/additions in this repository. The existing top-level `LICENSE` was not changed during this cleanup. The final release owner should verify the complete attribution and repository-level licensing package before publishing.
+SP-Mem-specific privacy processing, partitioned exact-value storage, consent-aware retrieval, experiment drivers, and evaluation code are modifications and additions provided by this repository. The repository-level license is provided in `LICENSE`; the Mem0-derived components remain subject to the Apache License 2.0 and the attribution above.

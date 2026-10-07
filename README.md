@@ -52,27 +52,27 @@ See [docs/setup.md](docs/setup.md) for the complete service configuration, envir
 
 ## Running SP-Mem
 
-The following PowerShell commands build memory and generate responses for a selected domain and inclusive user range. Replace every `<...>` placeholder before running them. Keep the domain, user range, collection, Qdrant URL, history database, and private-mapping directory consistent across the two steps.
+The following minimal example builds memory and generates responses for **Education user 0**. It is a smoke-test selection, not the paper's reported evaluation split. Configure the services and credentials above first, then run both commands from the repository root. The storage values match [`configs/paper.example.json`](configs/paper.example.json), so the same memory can also be used by the retrieval-ablation commands in the [evaluation guide](docs/evaluation.md).
 
 ### 1. Build memory
 
-This command reads the selected domain's files under `data/<domain>/histories` and writes their memories:
+This command reads `data/education/histories/user_0000.json` and writes its memory:
 
 ```powershell
 python scripts\build_memories.py `
-  --domain <domain> `
-  --start-user <start_user> --end-user <end_user> `
-  --batch-size <batch_size> `
-  --max-concurrent-users <max_concurrent_users> `
-  --collection-name <qdrant_collection> `
-  --qdrant-url <qdrant_url> `
-  --history-db-path <history_db_path> `
-  --privacy-mapping-dir <privacy_mapping_dir> `
-  --output-log-file <write_log_file> `
-  --user-done-log-file <completed_users_log_file>
+  --domain education `
+  --start-user 0 --end-user 0 `
+  --batch-size 1 `
+  --max-concurrent-users 1 `
+  --collection-name spmem_paper `
+  --qdrant-url $env:SPMEM_QDRANT_URL `
+  --history-db-path runs/storage/history.db `
+  --privacy-mapping-dir runs/storage/privacy_mappings `
+  --output-log-file runs/logs/write_education_user0.log `
+  --user-done-log-file runs/logs/write_education_user0.done
 ```
 
-The outputs are vector records in the selected Qdrant collection, graph records in Neo4j, local history state at `<history_db_path>`, exact private-value mappings under `<privacy_mapping_dir>`, and progress logs at the two specified log paths.
+This writes vector records to the `spmem_paper` Qdrant collection, graph records to the configured Neo4j database, local history state to `runs/storage/history.db`, and exact private-value mappings to `runs/storage/privacy_mappings`.
 
 ### 2. Generate responses
 
@@ -80,23 +80,56 @@ This command reads the selected users' evaluation queries and histories, reuses 
 
 ```powershell
 python eval\run_batch_generate_responses.py `
-  --domain <domain> `
-  --start-user <start_user> --end-user <end_user> `
-  --max-parallel <max_parallel_users> `
-  --test-dir data/<domain>/evaluation_queries `
-  --data-dir data/<domain>/histories `
-  --response-model <response_model_key> `
-  --output-tag <output_tag> `
-  --collection-name <qdrant_collection> `
-  --qdrant-url <qdrant_url> `
-  --history-db-path <history_db_path> `
-  --privacy-mapping-dir <privacy_mapping_dir> `
-  --output-dir <response_output_dir>
+  --domain education `
+  --start-user 0 --end-user 0 `
+  --max-parallel 1 `
+  --test-dir data/education/evaluation_queries `
+  --data-dir data/education/histories `
+  --response-model gpt-5.2-chat `
+  --output-tag gpt52chat `
+  --collection-name spmem_paper `
+  --qdrant-url $env:SPMEM_QDRANT_URL `
+  --history-db-path runs/storage/history.db `
+  --privacy-mapping-dir runs/storage/privacy_mappings `
+  --output-dir runs/responses/spmem/gpt52/education
 ```
 
-Per-user JSONL responses are written under `<response_output_dir>`, with run logs under `<response_output_dir>/logs_<output_tag>`. The JSONL files are the inputs to the evaluation workflow below. Model calls may incur provider costs.
+Per-user JSONL responses are written under `runs/responses/spmem/gpt52/education`, with run logs in its `logs_gpt52chat` subdirectory. These JSONL files are inputs to the evaluation workflow. Model calls may incur provider costs.
 
-See [docs/original_workflow.md](docs/original_workflow.md) for script provenance, concurrency and retry behavior, public-path adaptations, and the relationship between these entry points and the configuration-driven utilities under `scripts/`.
+<details>
+<summary>Bash equivalent</summary>
+
+```bash
+python scripts/build_memories.py \
+  --domain education \
+  --start-user 0 --end-user 0 \
+  --batch-size 1 \
+  --max-concurrent-users 1 \
+  --collection-name spmem_paper \
+  --qdrant-url "$SPMEM_QDRANT_URL" \
+  --history-db-path runs/storage/history.db \
+  --privacy-mapping-dir runs/storage/privacy_mappings \
+  --output-log-file runs/logs/write_education_user0.log \
+  --user-done-log-file runs/logs/write_education_user0.done
+
+python eval/run_batch_generate_responses.py \
+  --domain education \
+  --start-user 0 --end-user 0 \
+  --max-parallel 1 \
+  --test-dir data/education/evaluation_queries \
+  --data-dir data/education/histories \
+  --response-model gpt-5.2-chat \
+  --output-tag gpt52chat \
+  --collection-name spmem_paper \
+  --qdrant-url "$SPMEM_QDRANT_URL" \
+  --history-db-path runs/storage/history.db \
+  --privacy-mapping-dir runs/storage/privacy_mappings \
+  --output-dir runs/responses/spmem/gpt52/education
+```
+
+</details>
+
+See the [workflow notes](docs/original_workflow.md) for concurrency, retry behavior, and additional run controls.
 
 ## Dataset
 

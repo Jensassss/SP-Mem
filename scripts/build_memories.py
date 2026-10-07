@@ -1,6 +1,5 @@
-# Migrated from the experiment tree's test/test_async_write_data.py and renamed
-# for the public command-line interface.
-# See docs/original_workflow.md for source hash and bounded public adaptations.
+"""Asynchronously build SP-Mem memory for a selected domain and user range."""
+
 import argparse
 import asyncio
 import json
@@ -27,8 +26,8 @@ MAX_RETRIES = 3
 RETRY_BASE_SECONDS = 2.0
 VERBOSE_RESULTS = False
 
-OUTPUT_LOG_FILE = PROJECT_ROOT / "outputs" / "logs" / "async_write.log"
-USER_DONE_LOG_FILE = PROJECT_ROOT / "outputs" / "logs" / "async_write_users_done.log"
+OUTPUT_LOG_FILE = PROJECT_ROOT / "runs" / "logs" / "async_write.log"
+USER_DONE_LOG_FILE = PROJECT_ROOT / "runs" / "logs" / "async_write_users_done.log"
 
 CONFIG = {
     "llm": {
@@ -51,13 +50,13 @@ CONFIG = {
     "vector_store": {
     "provider": "qdrant",
     "config": {
-        "collection_name": "spmem_memory",
-        "url": os.getenv("SPMEM_QDRANT_URL") or os.getenv("QDRANT_URL", "http://127.0.0.1:6333"),
+        "collection_name": "spmem_paper",
+        "url": os.getenv("SPMEM_QDRANT_URL") or os.getenv("QDRANT_URL", ""),
         "embedding_model_dims": 1536
         }
     },
-    "history_db_path": str(PROJECT_ROOT / "outputs" / "storage" / "history.db"),
-    "privacy_mapping_dir": str(PROJECT_ROOT / "outputs" / "private" / "privacy_mappings"),
+    "history_db_path": str(PROJECT_ROOT / "runs" / "storage" / "history.db"),
+    "privacy_mapping_dir": str(PROJECT_ROOT / "runs" / "storage" / "privacy_mappings"),
 }
 
 
@@ -384,10 +383,7 @@ async def main():
 
 def _parse_args():
     parser = argparse.ArgumentParser(
-        description=(
-            "Original SP-Mem asynchronous writer, adapted only to make paths, "
-            "credentials, and concurrency configurable for the public repository."
-        )
+        description="Build SP-Mem memory with configurable storage, batching, and concurrency."
     )
     parser.add_argument("--domain", choices=["finance", "medical", "education", "mental"], default="mental")
     parser.add_argument("--data-dir", default="")
@@ -402,17 +398,17 @@ def _parse_args():
         action="store_true",
         help="Print per-batch memory results. Disabled by default because logs may contain sensitive values.",
     )
-    parser.add_argument("--collection-name", default="spmem_memory")
-    parser.add_argument("--qdrant-url", default=os.getenv("SPMEM_QDRANT_URL") or os.getenv("QDRANT_URL", "http://127.0.0.1:6333"))
-    parser.add_argument("--history-db-path", default=str(PROJECT_ROOT / "outputs" / "storage" / "history.db"))
+    parser.add_argument("--collection-name", default="spmem_paper")
+    parser.add_argument("--qdrant-url", default=os.getenv("SPMEM_QDRANT_URL") or os.getenv("QDRANT_URL", ""))
+    parser.add_argument("--history-db-path", default=str(PROJECT_ROOT / "runs" / "storage" / "history.db"))
     parser.add_argument(
         "--privacy-mapping-dir",
-        default=str(PROJECT_ROOT / "outputs" / "private" / "privacy_mappings"),
+        default=str(PROJECT_ROOT / "runs" / "storage" / "privacy_mappings"),
     )
-    parser.add_argument("--output-log-file", default=str(PROJECT_ROOT / "outputs" / "logs" / "async_write.log"))
+    parser.add_argument("--output-log-file", default=str(PROJECT_ROOT / "runs" / "logs" / "async_write.log"))
     parser.add_argument(
         "--user-done-log-file",
-        default=str(PROJECT_ROOT / "outputs" / "logs" / "async_write_users_done.log"),
+        default=str(PROJECT_ROOT / "runs" / "logs" / "async_write_users_done.log"),
     )
     parser.add_argument("--memory-llm-model", default=os.getenv("SPMEM_MEMORY_MODEL_ID") or os.getenv("MEMORY_LLM_MODEL", "gpt-5.2-chat"))
     parser.add_argument("--embed-model", default=os.getenv("SPMEM_EMBEDDING_MODEL_ID") or os.getenv("EMBEDDING_MODEL", "text-embedding-3-small"))
@@ -444,6 +440,8 @@ def _apply_args(args):
 
     if USER_INDEX_END < USER_INDEX_START:
         raise ValueError("--end-user must be greater than or equal to --start-user")
+    if not str(args.qdrant_url).strip():
+        raise ValueError("Qdrant URL is required via --qdrant-url or SPMEM_QDRANT_URL")
     if BATCH_SIZE < 1 or MAX_CONCURRENT_USERS < 1 or MAX_RETRIES < 0:
         raise ValueError("batch size/concurrency must be positive and retries must be non-negative")
     if not args.neo4j_password:

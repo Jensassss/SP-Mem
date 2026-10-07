@@ -28,8 +28,8 @@ class QdrantConfig(BaseModel):
             values.get("url"),
             values.get("api_key"),
         )
-        if not path and not (host and port) and not (url and api_key):
-            raise ValueError("Either 'host' and 'port' or 'url' and 'api_key' or 'path' must be provided.")
+        if not path and not (host and port) and not url:
+            raise ValueError("Either 'host' and 'port', 'url', or 'path' must be provided.")
         return values
 
     @model_validator(mode="before")

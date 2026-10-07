@@ -265,6 +265,30 @@ def build_memory_config(config: Mapping[str, Any], *, collection_suffix: str = "
     database_env = str(storage.get("neo4j_database_env", ""))
     neo4j_database = env_value(database_env, required=False) if database_env else ""
 
+    vector_config: Dict[str, Any] = {
+        "collection_name": collection,
+        "embedding_model_dims": int(config["embedding_model"].get("dimensions", 1536)),
+    }
+    qdrant_url_env = str(storage.get("qdrant_url_env", "")).strip()
+    qdrant_url = env_value(qdrant_url_env, required=False) if qdrant_url_env else ""
+    qdrant_path = str(storage.get("qdrant_path", "")).strip()
+    if qdrant_url:
+        vector_config["url"] = qdrant_url
+        qdrant_api_key_env = str(storage.get("qdrant_api_key_env", "")).strip()
+        if qdrant_api_key_env:
+            qdrant_api_key = env_value(qdrant_api_key_env, required=False)
+            if qdrant_api_key:
+                vector_config["api_key"] = qdrant_api_key
+    elif qdrant_path:
+        vector_config["path"] = str(repo_path(qdrant_path))
+        vector_config["on_disk"] = True
+    else:
+        expected = f" in {qdrant_url_env}" if qdrant_url_env else ""
+        raise RuntimeError(
+            "Qdrant storage is not configured: set the configured service URL"
+            f"{expected}, or provide storage.qdrant_path."
+        )
+
     return {
         "llm": {
             "provider": "openai",
@@ -296,12 +320,7 @@ def build_memory_config(config: Mapping[str, Any], *, collection_suffix: str = "
         },
         "vector_store": {
             "provider": "qdrant",
-            "config": {
-                "collection_name": collection,
-                "path": str(repo_path(storage["qdrant_path"])),
-                "embedding_model_dims": int(config["embedding_model"].get("dimensions", 1536)),
-                "on_disk": True,
-            },
+            "config": vector_config,
         },
         "history_db_path": str(repo_path(storage["history_db_path"])),
         "privacy_mapping_dir": str(mapping_dir),

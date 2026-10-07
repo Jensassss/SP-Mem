@@ -26,7 +26,7 @@ The source scripts are not copied byte-for-byte into the public tree because the
 - using the four paper model labels in the response-model registry while leaving provider deployment IDs configurable;
 - correcting the copied pairwise summary's half-tie intermediate score to the paper's explicitly defined win-tie rate `(W + T) / N` (the swapped-order judge decisions themselves are unchanged);
 - disabling logs of retrieved memories, generated answers, and per-batch results by default; and
-- moving generated stores, mappings, responses, and logs under ignored `outputs/` paths.
+- moving generated stores, mappings, responses, and logs under ignored runtime paths.
 
 These adaptations do not replace the original orchestration:
 

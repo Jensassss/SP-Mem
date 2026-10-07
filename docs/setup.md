@@ -29,7 +29,7 @@ A complete SP-Mem build and inference run uses all of the following:
 - **Chat model endpoint:** an OpenAI-compatible endpoint for memory writing and another configured response-model entry. They may point to the same service.
 - **Embedding endpoint:** an OpenAI-compatible embedding endpoint whose output dimension matches the configured `dimensions` value (1536 by default).
 - **Neo4j:** a reachable Neo4j database for graph memory.
-- **Qdrant:** the response workflow runs concurrent child processes, so its write and generation commands use one reachable Qdrant service. Supply that service's URL through the environment or command line. The configuration-driven utility scripts can alternatively use a local persistent client path.
+- **Qdrant:** all paper workflow and retrieval-ablation commands use the same reachable Qdrant service. Supply its URL through `SPMEM_QDRANT_URL` or the batch command line.
 - **Local state:** writable paths for the history database and separate private-value mappings.
 
 SP-Mem does not start Neo4j or model services. Start and verify those services using their own documentation before running a build.
@@ -79,19 +79,20 @@ Pairwise P-TC/P-PQ evaluation also requires the judge variables under `SPMEM_JUD
 
 Do not add secrets to JSON configuration files or commit local credential files.
 
-## 4. Storage paths
+## 4. Shared storage configuration
 
-[`configs/paper.example.json`](../configs/paper.example.json) defines the default relative paths:
+[`configs/paper.example.json`](../configs/paper.example.json) uses the same storage identifiers as the README example:
 
 ```text
-runs/storage/qdrant
+Qdrant service:     SPMEM_QDRANT_URL
+Qdrant collection:  spmem_paper
 runs/storage/history.db
 runs/storage/privacy_mappings
 ```
 
-The original experiment drivers receive their Qdrant collection, history database, and private-mapping directory explicitly on the command line. The write and response commands must use the same values so vector records, graph records, history state, and private mappings remain aligned. The JSON configuration above is used by the alternative configuration-driven utilities. Generated stores and mappings are ignored by Git and must not be published.
+The write command, batch response generator, and configuration-driven ablation utility must use these same values so vector records, graph records, history state, and private mappings remain aligned. A custom configuration may use `storage.qdrant_path` instead of `storage.qdrant_url_env` for a local Qdrant database, but it cannot read records previously written to the service.
 
-Use `--collection-suffix` when you need an isolated Qdrant collection without changing the base configuration. Do not point concurrent experiments at the same mutable stores unless that sharing is intentional.
+Use `--collection-suffix` only when memory was built into the matching suffixed collection. Do not point concurrent experiments at the same mutable stores unless that sharing is intentional.
 
 ## 5. Validate data and create a selection
 
@@ -111,11 +112,11 @@ python scripts\select_users.py `
   --output <selection_manifest>
 ```
 
-`--num-users` applies to each selected domain. You can instead use repeatable `--user-id`, `--user-index`, or inclusive `--user-range START:END`. The manifest records the selected users and arguments for the configuration-driven utilities. The migrated original drivers accept an inclusive range directly; use and record the same range for all compared methods.
+`--num-users` applies to each selected domain. You can instead use repeatable `--user-id`, `--user-index`, or inclusive `--user-range START:END`. The manifest records the selected users and arguments for the configuration-driven utilities. The batch drivers accept an inclusive range directly; use and record the same range for all compared methods.
 
 The paper reports evaluation on a 100-user subset, but its exact user IDs are not published in this repository. A newly generated selection must not be described as the original paper split.
 
-## 6. Build and generate with the original orchestration
+## 6. Build and generate
 
 Build memory:
 
@@ -124,10 +125,10 @@ python scripts\build_memories.py `
   --domain <domain> `
   --start-user <start_user> --end-user <end_user> `
   --max-concurrent-users <max_concurrent_users> `
-  --collection-name <qdrant_collection> `
-  --qdrant-url <qdrant_url> `
-  --history-db-path <history_db_path> `
-  --privacy-mapping-dir <privacy_mapping_dir>
+  --collection-name spmem_paper `
+  --qdrant-url $env:SPMEM_QDRANT_URL `
+  --history-db-path runs/storage/history.db `
+  --privacy-mapping-dir runs/storage/privacy_mappings
 ```
 
 Generate responses:
@@ -139,16 +140,16 @@ python eval\run_batch_generate_responses.py `
   --max-parallel <max_parallel_users> `
   --test-dir data/<domain>/evaluation_queries `
   --data-dir data/<domain>/histories `
-  --response-model <response_model_key> `
+  --response-model gpt-5.2-chat `
   --output-tag <output_tag> `
-  --collection-name <qdrant_collection> `
-  --qdrant-url <qdrant_url> `
-  --history-db-path <history_db_path> `
-  --privacy-mapping-dir <privacy_mapping_dir> `
+  --collection-name spmem_paper `
+  --qdrant-url $env:SPMEM_QDRANT_URL `
+  --history-db-path runs/storage/history.db `
+  --privacy-mapping-dir runs/storage/privacy_mappings `
   --output-dir <response_output_dir>
 ```
 
-The generator derives the five paper conditions from the query data: mixed allowed, mixed denied, privacy-only allowed, privacy-only denied, and preference-only (`non_privacy_only`). The writer keeps resumable progress in its log. The copied batch response driver preserves the original behavior of writing fresh per-user files; do not point a new run at outputs that must be retained.
+The generator derives the five paper conditions from the query data: mixed allowed, mixed denied, privacy-only allowed, privacy-only denied, and preference-only (`non_privacy_only`). The writer keeps resumable progress in its log. The batch response driver writes fresh per-user files; do not point a new run at outputs that must be retained.
 
 ## 7. Static checks
 

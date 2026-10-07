@@ -527,13 +527,13 @@ def _resolve_response_model_configs(keys: List[str]) -> List[ResponseModelConfig
     for key in keys:
         lower = key.lower()
 
-        if lower in {"llama3.1-8b", "llama-3.1-8b", "llama"}:
+        if lower in {"llama-3.1-8b-instruct", "llama3.1-8b", "llama-3.1-8b", "llama"}:
             model = _pick_env("SPMEM_LLAMA31_MODEL_ID", "RESPONSE_LLAMA_MODEL", default="llama-3.1-8b-instruct")
             base_url = _pick_env("SPMEM_LLAMA31_BASE_URL", "RESPONSE_LLAMA_BASE_URL")
             api_key = _pick_env("SPMEM_LLAMA31_API_KEY", "RESPONSE_LLAMA_API_KEY")
             configs.append(
                 ResponseModelConfig(
-                    name="llama3.1-8b",
+                    name="llama-3.1-8b-instruct",
                     model=model,
                     base_url=base_url,
                     api_key=api_key,
@@ -585,7 +585,7 @@ def _resolve_response_model_configs(keys: List[str]) -> List[ResponseModelConfig
 
         raise ValueError(
             f"Unknown response model key: {key}. "
-            "Supported: llama3.1-8b, qwen3-14b, gpt5.2-chat, deepseek-v3.2"
+            "Supported: llama-3.1-8b-instruct, qwen3-14b, gpt5.2-chat, deepseek-v3.2"
         )
 
     return configs
@@ -822,7 +822,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--privacy-mapping-dir",
-        default=str(PROJECT_ROOT / "outputs" / "private" / "privacy_mappings"),
+        default=str(PROJECT_ROOT / "runs" / "storage" / "privacy_mappings"),
         help=(
             "Source directory containing per-user privacy mapping jsonl files. "
             "The public implementation reads this directory directly; files are not copied."
@@ -835,8 +835,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--response-models",
-        default="llama3.1-8b,qwen3-14b,gpt5.2-chat,deepseek-v3.2",
-        help="Comma-separated model keys: llama3.1-8b,qwen3-14b,gpt5.2-chat,deepseek-v3.2",
+        default="llama-3.1-8b-instruct,qwen3-14b,gpt5.2-chat,deepseek-v3.2",
+        help="Comma-separated model keys: llama-3.1-8b-instruct,qwen3-14b,gpt5.2-chat,deepseek-v3.2",
     )
     parser.add_argument(
         "--response-timeout-seconds",
@@ -907,14 +907,14 @@ def main() -> None:
                 output_dir = out
                 output_stem = f"{test_file.stem}_agent_multi_model"
         else:
-            output_dir = PROJECT_ROOT / "eval_outputs" / "responses"
+            output_dir = PROJECT_ROOT / "runs" / "responses"
             output_stem = f"{test_file.stem}_agent_multi_model"
     else:
         if args.output_file:
             output_file = Path(args.output_file).resolve()
         else:
             output_name = f"{test_file.stem}_user{user_indices[0]:04d}_agent_multi_model.jsonl"
-            output_file = PROJECT_ROOT / "eval_outputs" / "responses" / output_name
+            output_file = PROJECT_ROOT / "runs" / "responses" / output_name
 
     memory_cfg = _build_memory_config(args)
     memory = Memory.from_config(memory_cfg)

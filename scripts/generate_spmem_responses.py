@@ -1,8 +1,4 @@
-"""Configuration-driven release utility, not the original experiment driver.
-
-For the migrated parallel experiment workflow, use
-``eval/run_batch_generate_responses.py`` and see ``docs/original_workflow.md``.
-"""
+"""Generate SP-Mem responses from a user manifest, including retrieval ablations."""
 
 from __future__ import annotations
 
@@ -149,16 +145,23 @@ def main() -> None:
     os.environ["PRIVACY_AGENT_RETRIEVAL_MODE"] = args.retrieval_mode
 
     memory_config = build_memory_config(config, collection_suffix=args.collection_suffix)
+    vector_config = memory_config["vector_store"]["config"]
+    resolved_storage = {
+        "qdrant_backend": "service" if vector_config.get("url") else "local_path",
+        "qdrant_collection": vector_config["collection_name"],
+        "history_db_path": memory_config["history_db_path"],
+        "privacy_mapping_dir": memory_config["privacy_mapping_dir"],
+    }
+    if vector_config.get("url"):
+        resolved_storage["qdrant_url_env"] = config["storage"].get("qdrant_url_env", "")
+    else:
+        resolved_storage["qdrant_path"] = vector_config["path"]
+
     write_json(output_dir / "resolved_run_config.json", {
         "method": "SP-Mem",
         "retrieval_mode": args.retrieval_mode,
         "response_models": [config["response_models"][name]["display_name"] for name in args.model],
-        "storage": {
-            "qdrant_path": memory_config["vector_store"]["config"]["path"],
-            "qdrant_collection": memory_config["vector_store"]["config"]["collection_name"],
-            "history_db_path": memory_config["history_db_path"],
-            "privacy_mapping_dir": memory_config["privacy_mapping_dir"],
-        },
+        "storage": resolved_storage,
         "note": "Provider model IDs and credentials are not persisted.",
     })
 

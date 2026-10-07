@@ -2,7 +2,7 @@
 
 This document contains the detailed experiment commands kept out of the project homepage. Run all commands from the repository root in the configured Python environment. Examples use PowerShell; replace every `<...>` placeholder before running them.
 
-The main SP-Mem write, response-generation, and judge batch entry points are minimally adapted copies of the experiment scripts. See [original_workflow.md](original_workflow.md) for source hashes and the exact adaptation boundary. They do not alter metrics or data to match reported numbers, and the repository does not claim a fresh end-to-end reproduction without running the required external services.
+The main SP-Mem write, response-generation, and judge entry points are described below. See [original_workflow.md](original_workflow.md) for implementation provenance and concurrency details. The repository does not claim a fresh end-to-end reproduction without running the required external services.
 
 ## Data validation and optional selection manifests
 
@@ -17,11 +17,11 @@ python scripts\select_users.py `
   --output <selection_manifest>
 ```
 
-The configuration-driven utilities under `scripts/` consume this manifest. The original migrated drivers below instead accept an explicit inclusive user range; record the command and use the same range and query files for every method in a comparison. The manifest remains useful for seeded or non-contiguous selections, but it is not presented as an input supported by the historical drivers. See [setup.md](setup.md) for model, Neo4j, Qdrant, and path configuration.
+The configuration-driven utilities under `scripts/` consume this manifest. The batch drivers below instead accept an explicit inclusive user range; record the command and use the same range and query files for every method in a comparison. See [setup.md](setup.md) for model, Neo4j, Qdrant, and path configuration.
 
-## Original SP-Mem experiment flow
+## SP-Mem experiment flow
 
-The original writer schedules users concurrently with `asyncio`, limits active users with a semaphore, and processes each user's dialogue batches in order:
+The writer schedules users concurrently with `asyncio`, limits active users with a semaphore, and processes each user's dialogue batches in order:
 
 ```powershell
 python scripts\build_memories.py `
@@ -29,15 +29,15 @@ python scripts\build_memories.py `
   --start-user <start_user> --end-user <end_user> `
   --batch-size <batch_size> `
   --max-concurrent-users <max_concurrent_users> `
-  --collection-name <qdrant_collection> `
-  --qdrant-url <qdrant_url> `
-  --history-db-path <history_db_path> `
-  --privacy-mapping-dir <privacy_mapping_dir> `
+  --collection-name spmem_paper `
+  --qdrant-url $env:SPMEM_QDRANT_URL `
+  --history-db-path runs/storage/history.db `
+  --privacy-mapping-dir runs/storage/privacy_mappings `
   --output-log-file <write_log_file> `
   --user-done-log-file <completed_users_log_file>
 ```
 
-The original batch generator runs one response process per user and uses `--max-parallel` to bound concurrent users:
+The batch generator runs one response process per user and uses `--max-parallel` to bound concurrent users:
 
 ```powershell
 python eval\run_batch_generate_responses.py `
@@ -46,40 +46,49 @@ python eval\run_batch_generate_responses.py `
   --max-parallel <max_parallel_users> `
   --test-dir data/<domain>/evaluation_queries `
   --data-dir data/<domain>/histories `
-  --response-model <response_model_key> `
+  --response-model gpt-5.2-chat `
   --output-tag <output_tag> `
-  --collection-name <qdrant_collection> `
-  --qdrant-url <qdrant_url> `
-  --history-db-path <history_db_path> `
-  --privacy-mapping-dir <privacy_mapping_dir> `
+  --collection-name spmem_paper `
+  --qdrant-url $env:SPMEM_QDRANT_URL `
+  --history-db-path runs/storage/history.db `
+  --privacy-mapping-dir runs/storage/privacy_mappings `
   --output-dir <response_output_dir>
 ```
 
-Repeat the batch command with `--response-model llama3.1-8b`, `qwen3-14b`, or `deepseek-v3.2` and a distinct output tag/directory for the other paper backbones. Provider model IDs remain environment-configured.
+Repeat the batch command with `--response-model llama-3.1-8b-instruct`, `qwen3-14b`, or `deepseek-v3.2` and a distinct output tag/directory for the other paper backbones. Provider model IDs remain environment-configured.
 
-The earlier configuration-driven public utilities remain available for user manifests and retrieval ablations. They are useful public interfaces but are not the original experiment orchestration:
+The configuration-driven utility uses the same Qdrant service, `spmem_paper` collection, history database, and private-mapping directory defined above. To run the README's Education user 0 example through the vector-only and graph-only ablations, first save the matching selection:
+
+```powershell
+python scripts\select_users.py `
+  --domain education `
+  --user-index 0 `
+  --output runs/selections/education_user0.json
+```
+
+Then run:
 
 ```powershell
 python scripts\generate_spmem_responses.py `
-  --config <paper_config> `
-  --selection-manifest <selection_manifest> `
-  --model <response_model_key> `
+  --config configs/paper.example.json `
+  --selection-manifest runs/selections/education_user0.json `
+  --model gpt-5.2-chat `
   --retrieval-mode vector_only `
-  --output-dir <vector_only_output_dir>
+  --output-dir runs/responses/ablations/vector_only
 
 python scripts\generate_spmem_responses.py `
-  --config <paper_config> `
-  --selection-manifest <selection_manifest> `
-  --model <response_model_key> `
+  --config configs/paper.example.json `
+  --selection-manifest runs/selections/education_user0.json `
+  --model gpt-5.2-chat `
   --retrieval-mode graph_only `
-  --output-dir <graph_only_output_dir>
+  --output-dir runs/responses/ablations/graph_only
 ```
 
-Add `--collection-suffix <name>` when an isolated Qdrant collection is required. Use `--resume` to skip completed output after an interruption.
+Use `--resume` to skip completed output after an interruption. Add `--collection-suffix <name>` only if the corresponding memories were written to that suffixed collection.
 
 The configured response-model keys are `gpt-5.2-chat`, `llama-3.1-8b-instruct`, `qwen3-14b`, and `deepseek-v3.2`. Repeat `--model` to generate more than one model in a single invocation.
 
-## Original-paper baselines
+## Paper baselines
 
 The baseline entry point supports Full-context, Mem0, Zep, and MemOS. Full-context uses the complete selected user's interaction history.
 
