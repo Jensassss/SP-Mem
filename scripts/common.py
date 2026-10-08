@@ -73,11 +73,13 @@ def _relative(path: Path) -> str:
         return str(path.resolve())
 
 
-def _history_records(domain: str, data_root: Path) -> List[SelectedUser]:
+def _history_records(domain: str, history_root: Path, query_root: Path) -> List[SelectedUser]:
     if domain not in DOMAINS:
         raise ValueError(f"Unknown domain {domain!r}; choose from {', '.join(DOMAINS)}")
-    histories = data_root / domain / "histories"
-    queries = data_root / domain / "evaluation_queries"
+    histories = history_root / domain / "histories"
+    if not histories.exists():
+        histories = history_root / domain
+    queries = query_root / domain / "evaluation_queries"
     records: List[SelectedUser] = []
     for history_path in sorted(histories.glob("user_*.json")):
         payload = read_json(history_path)
@@ -131,6 +133,14 @@ def add_selection_arguments(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--seed", type=int, default=0, help="Seed for --num-users sampling.")
     parser.add_argument(
+        "--history-root",
+        default="",
+        help=(
+            "Root containing per-domain history files downloaded from Hugging Face. "
+            "Each domain may contain user_XXXX.json directly or under histories/."
+        ),
+    )
+    parser.add_argument(
         "--selection-manifest",
         help="Reuse an earlier selection manifest; other selection flags are then ignored.",
     )
@@ -158,6 +168,8 @@ def select_users(args: argparse.Namespace, data_root: Path | None = None) -> Lis
     if not domains:
         raise ValueError("Provide at least one --domain, or use --selection-manifest")
     data_root = (data_root or REPO_ROOT / "data").resolve()
+    history_root_value = str(getattr(args, "history_root", "") or "").strip()
+    history_root = repo_path(history_root_value) if history_root_value else data_root
     explicit_ids = set(getattr(args, "user_id", []) or [])
     explicit_indices = set(getattr(args, "user_index", []) or [])
     for start, end in getattr(args, "user_range", []) or []:
@@ -169,7 +181,7 @@ def select_users(args: argparse.Namespace, data_root: Path | None = None) -> Lis
 
     selected: List[SelectedUser] = []
     for domain_offset, domain in enumerate(domains):
-        records = _history_records(domain, data_root)
+        records = _history_records(domain, history_root, data_root)
         if has_explicit_filter:
             records = [
                 record for record in records

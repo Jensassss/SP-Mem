@@ -13,11 +13,14 @@ python scripts\validate_data.py --output-json <validation_report_json>
 
 python scripts\select_users.py `
   --domain <domain> `
+  --history-root <downloaded_history_root> `
   --num-users <number_of_users> --seed <random_seed> `
   --output <selection_manifest>
 ```
 
 The configuration-driven utilities under `scripts/` consume this manifest. The batch drivers below instead accept an explicit inclusive user range; record the command and use the same range and query files for every method in a comparison. See [setup.md](setup.md) for model, Neo4j, Qdrant, and path configuration.
+
+Conversation histories are distributed through the [Hugging Face dataset](https://huggingface.co/datasets/wwj95/privacy-aware-memory-benchmark); this GitHub repository contains the test queries only. Commands that require exact privacy or preference profile references accept explicit local file paths, but those profile files are not distributed here.
 
 ## SP-Mem experiment flow
 
@@ -26,6 +29,7 @@ The writer schedules users concurrently with `asyncio`, limits active users with
 ```powershell
 python scripts\build_memories.py `
   --domain <domain> `
+  --data-dir <downloaded_history_dir> `
   --start-user <start_user> --end-user <end_user> `
   --batch-size <batch_size> `
   --max-concurrent-users <max_concurrent_users> `
@@ -45,7 +49,7 @@ python eval\run_batch_generate_responses.py `
   --start-user <start_user> --end-user <end_user> `
   --max-parallel <max_parallel_users> `
   --test-dir data/<domain>/evaluation_queries `
-  --data-dir data/<domain>/histories `
+  --data-dir <downloaded_history_dir> `
   --response-model gpt-5.2-chat `
   --output-tag <output_tag> `
   --collection-name spmem_paper `
@@ -145,7 +149,7 @@ UPU measures whether an answer exposes an exact private value when that value is
 ```powershell
 python eval\score_upu_exact_match.py `
   --responses <response_file_or_dir> `
-  --privacy-profile-file data/<domain>/profiles/privacy_profiles.jsonl `
+  --privacy-profile-file <privacy_profile_file> `
   --output-jsonl <upu_scored_rows_jsonl> `
   --summary-json <upu_summary_json>
 ```
@@ -169,7 +173,7 @@ python eval\run_batch_pairwise_evaluation.py `
   --judge-name <judge_name> `
   --name-a SP-Mem `
   --name-b <baseline_name> `
-  --preference-profile-file data/<domain>/profiles/preference_profiles.jsonl `
+  --preference-profile-file <preference_profile_file> `
   --strict-pairing
 ```
 

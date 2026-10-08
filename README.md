@@ -3,7 +3,7 @@
 <p align="center">
   <a href="https://arxiv.org/abs/2608.16551"><img height="24" alt="arXiv" src="https://img.shields.io/badge/arXiv-2608.16551-b31b1b.svg?logo=arxiv&amp;logoColor=white"></a>
   <a href="https://arxiv.org/pdf/2608.16551"><img height="24" alt="Paper PDF" src="https://img.shields.io/badge/Paper-PDF-4b5563.svg?logo=adobeacrobatreader&amp;logoColor=white"></a>
-  <a href="https://github.com/Jensassss/SP-Mem"><img height="24" alt="Code" src="https://img.shields.io/badge/Code-GitHub-24292f.svg?logo=github&amp;logoColor=white"></a>
+  <a href="https://huggingface.co/datasets/wwj95/privacy-aware-memory-benchmark"><img height="24" alt="Hugging Face dataset" src="https://img.shields.io/badge/Dataset-Hugging%20Face-FFD21E.svg?logo=huggingface&amp;logoColor=black"></a>
 </p>
 
 <p align="center">
@@ -54,13 +54,21 @@ See [docs/setup.md](docs/setup.md) for the complete service configuration, envir
 
 The following minimal example builds memory and generates responses for **Education user 0**. It is a smoke-test selection, not the paper's reported evaluation split. Configure the services and credentials above first, then run both commands from the repository root. The storage values match [`configs/paper.example.json`](configs/paper.example.json), so the same memory can also be used by the retrieval-ablation commands in the [evaluation guide](docs/evaluation.md).
 
+Conversation histories are hosted in the [Privacy-Aware Memory Benchmark on Hugging Face](https://huggingface.co/datasets/wwj95/privacy-aware-memory-benchmark). Download them once and set the history directory used by the commands below:
+
+```powershell
+git clone https://huggingface.co/datasets/wwj95/privacy-aware-memory-benchmark.git ..\privacy-aware-memory-benchmark
+$historyDir = (Resolve-Path ..\privacy-aware-memory-benchmark\education).Path
+```
+
 ### 1. Build memory
 
-This command reads `data/education/histories/user_0000.json` and writes its memory:
+This command reads `user_0000.json` from the downloaded Education histories and writes its memory:
 
 ```powershell
 python scripts\build_memories.py `
   --domain education `
+  --data-dir $historyDir `
   --start-user 0 --end-user 0 `
   --batch-size 1 `
   --max-concurrent-users 1 `
@@ -84,7 +92,7 @@ python eval\run_batch_generate_responses.py `
   --start-user 0 --end-user 0 `
   --max-parallel 1 `
   --test-dir data/education/evaluation_queries `
-  --data-dir data/education/histories `
+  --data-dir $historyDir `
   --response-model gpt-5.2-chat `
   --output-tag gpt52chat `
   --collection-name spmem_paper `
@@ -100,8 +108,12 @@ Per-user JSONL responses are written under `runs/responses/spmem/gpt52/education
 <summary>Bash equivalent</summary>
 
 ```bash
+git clone https://huggingface.co/datasets/wwj95/privacy-aware-memory-benchmark.git ../privacy-aware-memory-benchmark
+history_dir=../privacy-aware-memory-benchmark/education
+
 python scripts/build_memories.py \
   --domain education \
+  --data-dir "$history_dir" \
   --start-user 0 --end-user 0 \
   --batch-size 1 \
   --max-concurrent-users 1 \
@@ -117,7 +129,7 @@ python eval/run_batch_generate_responses.py \
   --start-user 0 --end-user 0 \
   --max-parallel 1 \
   --test-dir data/education/evaluation_queries \
-  --data-dir data/education/histories \
+  --data-dir "$history_dir" \
   --response-model gpt-5.2-chat \
   --output-tag gpt52chat \
   --collection-name spmem_paper \
@@ -133,13 +145,9 @@ See the [workflow notes](docs/original_workflow.md) for concurrency, retry behav
 
 ## Dataset
 
-The repository includes synthetic data for **1,000 users** across **Finance**, **Medical**, **Education**, and **Mental Support**. The data are available in [`data/`](data/), with the following components:
+The [Privacy-Aware Memory Benchmark conversation histories](https://huggingface.co/datasets/wwj95/privacy-aware-memory-benchmark) contain synthetic multi-turn data for **1,000 users** across **Finance**, **Medical**, **Education**, and **Mental Support**.
 
-- **Profiles:** synthetic user preferences and private attributes used as evaluation references.
-- **Histories:** conversations used to construct memory.
-- **Evaluation queries:** user requests and annotations used for evaluation.
-
-See [`data/README.md`](data/README.md) for the directory structure and field descriptions.
+This GitHub repository retains only the **test queries** used for evaluation. They are stored under [`data/<domain>/evaluation_queries/`](data/) as one JSONL file per user. See [`data/README.md`](data/README.md) for paths, fields, and the mapping between query files and Hugging Face history records.
 
 ## Evaluation
 

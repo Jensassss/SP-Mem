@@ -107,6 +107,7 @@ Create a reproducible selection manifest:
 ```powershell
 python scripts\select_users.py `
   --domain <domain> `
+  --history-root <downloaded_history_root> `
   --num-users <number_of_users> `
   --seed <random_seed> `
   --output <selection_manifest>
@@ -118,11 +119,14 @@ The paper reports evaluation on a 100-user subset, but its exact user IDs are no
 
 ## 6. Build and generate
 
+Download the conversation histories from the [Hugging Face dataset](https://huggingface.co/datasets/wwj95/privacy-aware-memory-benchmark). The GitHub repository stores only the evaluation queries; pass the downloaded domain directory through `--data-dir`.
+
 Build memory:
 
 ```powershell
 python scripts\build_memories.py `
   --domain <domain> `
+  --data-dir <downloaded_history_dir> `
   --start-user <start_user> --end-user <end_user> `
   --max-concurrent-users <max_concurrent_users> `
   --collection-name spmem_paper `
@@ -139,7 +143,7 @@ python eval\run_batch_generate_responses.py `
   --start-user <start_user> --end-user <end_user> `
   --max-parallel <max_parallel_users> `
   --test-dir data/<domain>/evaluation_queries `
-  --data-dir data/<domain>/histories `
+  --data-dir <downloaded_history_dir> `
   --response-model gpt-5.2-chat `
   --output-tag <output_tag> `
   --collection-name spmem_paper `
