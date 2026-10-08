@@ -87,22 +87,26 @@ This writes vector records to the `spmem_paper` Qdrant collection, graph records
 This command reads the selected users' evaluation queries and histories, reuses the memory written above, and generates responses for the same user range:
 
 ```powershell
+$responseModel = "<response-model-key>"
+$outputTag = "selected-model"
+$outputDir = "runs/responses/spmem/$outputTag/education"
+
 python eval\run_batch_generate_responses.py `
   --domain education `
   --start-user 0 --end-user 0 `
   --max-parallel 1 `
   --test-dir data/education/evaluation_queries `
   --data-dir $historyDir `
-  --response-model gpt-5.2-chat `
-  --output-tag gpt52chat `
+  --response-model $responseModel `
+  --output-tag $outputTag `
   --collection-name spmem_paper `
   --qdrant-url $env:SPMEM_QDRANT_URL `
   --history-db-path runs/storage/history.db `
   --privacy-mapping-dir runs/storage/privacy_mappings `
-  --output-dir runs/responses/spmem/gpt52/education
+  --output-dir $outputDir
 ```
 
-Per-user JSONL responses are written under `runs/responses/spmem/gpt52/education`, with run logs in its `logs_gpt52chat` subdirectory. These JSONL files are inputs to the evaluation workflow. Model calls may incur provider costs.
+Replace `<response-model-key>` with one of the supported keys listed in the [setup guide](docs/setup.md); the provider deployment ID is configured separately through environment variables. Per-user JSONL responses are written under `$outputDir`, with run logs in its `logs_selected-model` subdirectory. These JSONL files are inputs to the evaluation workflow. Model calls may incur provider costs.
 
 <details>
 <summary>Bash equivalent</summary>
@@ -110,6 +114,9 @@ Per-user JSONL responses are written under `runs/responses/spmem/gpt52/education
 ```bash
 git clone https://huggingface.co/datasets/wwj95/privacy-aware-memory-benchmark.git ../privacy-aware-memory-benchmark
 history_dir=../privacy-aware-memory-benchmark/education
+response_model="<response-model-key>"
+output_tag="selected-model"
+output_dir="runs/responses/spmem/$output_tag/education"
 
 python scripts/build_memories.py \
   --domain education \
@@ -130,13 +137,13 @@ python eval/run_batch_generate_responses.py \
   --max-parallel 1 \
   --test-dir data/education/evaluation_queries \
   --data-dir "$history_dir" \
-  --response-model gpt-5.2-chat \
-  --output-tag gpt52chat \
+  --response-model "$response_model" \
+  --output-tag "$output_tag" \
   --collection-name spmem_paper \
   --qdrant-url "$SPMEM_QDRANT_URL" \
   --history-db-path runs/storage/history.db \
   --privacy-mapping-dir runs/storage/privacy_mappings \
-  --output-dir runs/responses/spmem/gpt52/education
+  --output-dir "$output_dir"
 ```
 
 </details>
@@ -156,14 +163,12 @@ Evaluation and aggregation utilities are provided in [`eval/`](eval/) and [`scri
 ## Citation
 
 ```bibtex
-@article{wang2026remember,
+@misc{wang2026remember,
   title         = {What to Remember, What to Reveal: Privacy-Aware Memory for Conversational Agents},
   author        = {Wang, Wenjie and Si, Wenhe and Xu, Xinyue and Xu, Yue},
   year          = {2026},
   eprint        = {2608.16551},
-  archivePrefix = {arXiv},
-  primaryClass  = {cs.CR},
-  url           = {https://arxiv.org/abs/2608.16551}
+  archivePrefix = {arXiv}
 }
 ```
 

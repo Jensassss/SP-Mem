@@ -144,7 +144,7 @@ python eval\run_batch_generate_responses.py `
   --max-parallel <max_parallel_users> `
   --test-dir data/<domain>/evaluation_queries `
   --data-dir <downloaded_history_dir> `
-  --response-model gpt-5.2-chat `
+  --response-model <response_model_key> `
   --output-tag <output_tag> `
   --collection-name spmem_paper `
   --qdrant-url $env:SPMEM_QDRANT_URL `

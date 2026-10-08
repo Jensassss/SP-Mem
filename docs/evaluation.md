@@ -50,7 +50,7 @@ python eval\run_batch_generate_responses.py `
   --max-parallel <max_parallel_users> `
   --test-dir data/<domain>/evaluation_queries `
   --data-dir <downloaded_history_dir> `
-  --response-model gpt-5.2-chat `
+  --response-model <response_model_key> `
   --output-tag <output_tag> `
   --collection-name spmem_paper `
   --qdrant-url $env:SPMEM_QDRANT_URL `
@@ -59,7 +59,7 @@ python eval\run_batch_generate_responses.py `
   --output-dir <response_output_dir>
 ```
 
-Repeat the batch command with `--response-model llama-3.1-8b-instruct`, `qwen3-14b`, or `deepseek-v3.2` and a distinct output tag/directory for the other paper backbones. Provider model IDs remain environment-configured.
+Choose any response-model key defined in the configuration and use a distinct output tag and directory for each model. The paper configuration includes all four evaluated response models; provider deployment IDs remain environment-configured.
 
 The configuration-driven utility uses the same Qdrant service, `spmem_paper` collection, history database, and private-mapping directory defined above. To run the README's Education user 0 example through the vector-only and graph-only ablations, first save the matching selection:
 
@@ -76,14 +76,14 @@ Then run:
 python scripts\generate_spmem_responses.py `
   --config configs/paper.example.json `
   --selection-manifest runs/selections/education_user0.json `
-  --model gpt-5.2-chat `
+  --model <response_model_key> `
   --retrieval-mode vector_only `
   --output-dir runs/responses/ablations/vector_only
 
 python scripts\generate_spmem_responses.py `
   --config configs/paper.example.json `
   --selection-manifest runs/selections/education_user0.json `
-  --model gpt-5.2-chat `
+  --model <response_model_key> `
   --retrieval-mode graph_only `
   --output-dir runs/responses/ablations/graph_only
 ```
