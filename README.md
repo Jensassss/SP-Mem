@@ -2,7 +2,7 @@
 
 <p align="center">
   <a href="https://arxiv.org/abs/2608.16551"><img height="24" alt="arXiv" src="https://img.shields.io/badge/arXiv-2608.16551-b31b1b.svg?logo=arxiv&amp;logoColor=white"></a>
-  <a href="https://arxiv.org/pdf/2608.16551"><img height="24" alt="Paper PDF" src="https://img.shields.io/badge/Paper-PDF-4b5563.svg?logo=adobeacrobatreader&amp;logoColor=white"></a>
+  <a href="https://arxiv.org/pdf/2608.16551"><img height="24" alt="Paper PDF" src="https://img.shields.io/badge/Paper-PDF-2563EB.svg?logo=adobeacrobatreader&amp;logoColor=white"></a>
   <a href="https://huggingface.co/datasets/wwj95/privacy-aware-memory-benchmark"><img height="24" alt="Hugging Face dataset" src="https://img.shields.io/badge/Dataset-Hugging%20Face-FFD21E.svg?logo=huggingface&amp;logoColor=black"></a>
 </p>
 
